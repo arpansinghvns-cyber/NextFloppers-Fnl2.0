@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --themeBg: #0a0a0a;
+    --cardBg: #121212;
+    --themePrimary: #FACC15;
+    --themePrimaryGlow: rgba(250, 204, 21, 0.35);
+    --themeSecondary: #F59E0B;
+    --themeAccent: #10B981;
+    --activeFont: 'Inter', system-ui, sans-serif;
+    --displayFont: 'Syne', system-ui, sans-serif;
+  }
+
+  /* Themes */
+  [data-theme="amber"] {
+    --themePrimary: #FACC15;
+    --themePrimaryGlow: rgba(250, 204, 21, 0.4);
+    --themeSecondary: #F59E0B;
+    --themeAccent: #10B981;
+  }
+
+  [data-theme="cyber"] {
+    --themePrimary: #06B6D4;
+    --themePrimaryGlow: rgba(6, 182, 212, 0.45);
+    --themeSecondary: #3B82F6;
+    --themeAccent: #8B5CF6;
+  }
+
+  [data-theme="purple"] {
+    --themePrimary: #C084FC;
+    --themePrimaryGlow: rgba(192, 132, 252, 0.45);
+    --themeSecondary: #EC4899;
+    --themeAccent: #38BDF8;
+  }
+
+  [data-theme="emerald"] {
+    --themePrimary: #10B981;
+    --themePrimaryGlow: rgba(16, 185, 129, 0.45);
+    --themeSecondary: #14B8A6;
+    --themeAccent: #FACC15;
+  }
+
+  [data-theme="crimson"] {
+    --themePrimary: #FB7185;
+    --themePrimaryGlow: rgba(251, 113, 133, 0.45);
+    --themeSecondary: #F43F5E;
+    --themeAccent: #FB923C;
+  }
+
+  /* Font Families */
+  [data-font="syne"] {
+    --activeFont: 'Syne', sans-serif;
+    --displayFont: 'Syne', sans-serif;
+  }
+
+  [data-font="space"] {
+    --activeFont: 'Space Grotesk', sans-serif;
+    --displayFont: 'Space Grotesk', sans-serif;
+  }
+
+  [data-font="outfit"] {
+    --activeFont: 'Outfit', sans-serif;
+    --displayFont: 'Outfit', sans-serif;
+  }
+
+  [data-font="jakarta"] {
+    --activeFont: 'Plus Jakarta Sans', sans-serif;
+    --displayFont: 'Plus Jakarta Sans', sans-serif;
+  }
+
+  [data-font="mono"] {
+    --activeFont: 'JetBrains Mono', monospace;
+    --displayFont: 'JetBrains Mono', monospace;
+  }
+
+  [data-font="inter"] {
+    --activeFont: 'Inter', system-ui, sans-serif;
+    --displayFont: 'Syne', system-ui, sans-serif;
+  }
+
+  body {
+    background-color: #070708;
+    color: #e5e5e5;
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    font-family: var(--activeFont);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+.font-syne {
+  font-family: var(--displayFont);
+}
+
+.font-custom {
+  font-family: var(--activeFont);
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.btn-click-effect {
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.15s ease;
+}
+.btn-click-effect:active {
+  transform: scale(0.96);
+}
+
+/* Flowy ambient gradients */
+@keyframes flowGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+.animate-float-slow {
+  animation: floatSlow 6s ease-in-out infinite;
+}
+
+.flowy-mesh {
+  background: 
+    radial-gradient(at 0% 0%, var(--themePrimaryGlow) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 60%);
+}
+
+.premium-card {
+  background-color: #111113;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+}
+.premium-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--themePrimaryGlow);
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.8), 0 0 20px -6px var(--themePrimaryGlow);
+}
+
+.nav-glass {
+  background: rgba(8, 8, 10, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.modal-glass {
+  background: rgba(14, 14, 17, 0.95);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85);
+}
+
+.glow-pill {
+  box-shadow: 0 0 15px -3px var(--themePrimaryGlow);
+}
+
+.hide-scroll::-webkit-scrollbar {
+  display: none;
+}
+.hide-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom flowy scrollbar for modals & lists */
+.flowy-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.flowy-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 9999px;
+}
+.flowy-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+.flowy-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Question and content HTML styles */
+.question-html p {
+  margin-bottom: 0.5rem;
+}
+.question-html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 12px 0;
+}
