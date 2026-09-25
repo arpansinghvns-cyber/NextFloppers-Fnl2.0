@@ -4,18 +4,29 @@
     <meta charset="utf-8">
     <title>NEXT FLOPPERS</title>
     <script type="text/javascript">
-      // GitHub Pages SPA redirect script
-      var pathSegmentsToKeep = 1;
-      var l = window.location;
-      l.replace(
-        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
-        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
-        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
-        l.hash
-      );
+      // GitHub Pages SPA redirect script (safeguarded against assets)
+      var path = window.location.pathname;
+      var isAsset = /\.(js|css|json|png|jpg|jpeg|gif|svg|ico|m3u8|ts|mp4|webm)$/i.test(path);
+      
+      if (!isAsset) {
+        var pathSegmentsToKeep = 1;
+        var l = window.location;
+        var repoBase = l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/');
+        var remaining = l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~');
+        
+        l.replace(
+          l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+          repoBase + '/?p=/' + remaining +
+          (l.search ? '&q=' + encodeURIComponent(l.search.slice(1)) : '') +
+          l.hash
+        );
+      }
     </script>
   </head>
-  <body>
+  <body style="background: #070709; color: #fff; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+    <div style="text-align: center;">
+      <h2 style="color: #FACC15;">Redirecting to Next Floppers...</h2>
+      <p style="color: #888;">If you are not redirected automatically, <a href="./" style="color: #FACC15;">click here</a>.</p>
+    </div>
   </body>
 </html>
