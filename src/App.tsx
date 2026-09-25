@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Search, 
   Sparkles, 
@@ -12,23 +12,27 @@ import {
   Key, 
   X, 
   CheckCircle2, 
-  ExternalLink,
-  BookOpen,
-  Folder,
-  Layers,
-  GraduationCap,
-  Palette,
-  Type,
-  Crown,
-  Flame,
-  Zap,
-  Maximize2,
-  Minimize2,
-  SlidersHorizontal
+  BookOpen, 
+  Layers, 
+  GraduationCap, 
+  Type, 
+  Crown, 
+  Zap, 
+  Clock,
+  ShieldCheck,
+  RotateCcw
 } from 'lucide-react';
 import { BatchItem, Lecture, ThemeId, FontId, FlopperUser } from './types';
 import { ALL_BATCHES } from './lib/batchesData';
-import { fetchAllBatches, MediaResolutionResult, ensureActiveValidKey } from './lib/api';
+import { fetchAllBatches, MediaResolutionResult } from './lib/api';
+import { 
+  getActiveKey, 
+  getActiveKeySync, 
+  hasActiveKey, 
+  isFloppyAdminUser, 
+  clearActiveKey,
+  getKeyTimeRemaining 
+} from './lib/keyService';
 import { BatchCard } from './components/BatchCard';
 import { CourseExplorer } from './components/CourseExplorer';
 import { VideoModal } from './components/VideoModal';
@@ -38,6 +42,8 @@ import { ThemeCustomizerModal } from './components/ThemeCustomizerModal';
 import { FlopperLoginModal } from './components/FlopperLoginModal';
 import { FlopperProfileModal } from './components/FlopperProfileModal';
 import { FlowyControlsBanner } from './components/FlowyControlsBanner';
+import { KeyGatewayModal } from './components/KeyGatewayModal';
+import { Logo } from './components/Logo';
 import { 
   getInitialTheme, 
   getInitialFont, 
@@ -129,6 +135,8 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<'batches' | 'enrolled' | 'curated'>('batches');
   const [selectedCategory, setSelectedCategory] = useState<string>('All Batches');
   const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const [enrolledIds, setEnrolledIds] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('studybee_wishlist') || '[]').map(String);
@@ -162,32 +170,71 @@ export default function App() {
   // CBT Exam modal state
   const [activeTest, setActiveTest] = useState<{ id: string; title: string } | null>(null);
 
-  // Key state & Toast
-  const [activeKey, setActiveKey] = useState<string>('');
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Mandatory Key State & FloppyAdmin Verification
+  const [activeKey, setActiveKey] = useState<string>(() => getActiveKeySync());
+  const [hasValidKey, setHasValidKey] = useState<boolean>(() => hasActiveKey());
+  const [isFloppyAdmin, setIsFloppyAdmin] = useState<boolean>(() => isFloppyAdminUser());
+  const [isKeyGatewayOpen, setIsKeyGatewayOpen] = useState(false);
+  const [keyGatewayReason, setKeyGatewayReason] = useState<string | undefined>(undefined);
   const [showKeyInfoModal, setShowKeyInfoModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Initialize theme, font, and batches
+  // Keyboard shortcut listener for fast search '/'
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Initialize theme, font, and asynchronous background sync for GitHub Pages
   useEffect(() => {
     applyTheme(currentTheme);
     applyFont(currentFont);
 
-    async function loadData() {
-      const key = await ensureActiveValidKey();
-      setActiveKey(key);
-      const list = await fetchAllBatches();
+    // Non-blocking background batch list refresh
+    fetchAllBatches().then((list) => {
       if (list && list.length > 0) {
         setBatches(list);
       }
+    });
+
+    // Check key status on startup
+    const valid = hasActiveKey();
+    setHasValidKey(valid);
+    setIsFloppyAdmin(isFloppyAdminUser());
+    if (valid) {
+      setActiveKey(getActiveKey() || '');
     }
-    loadData();
   }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage(null);
-    }, 3000);
+    }, 3200);
+  };
+
+  const handleOpenKeyGateway = (reason?: string) => {
+    setKeyGatewayReason(reason);
+    setIsKeyGatewayOpen(true);
+  };
+
+  const handleKeyActivated = (key: string, isAdmin?: boolean) => {
+    setActiveKey(key);
+    setHasValidKey(true);
+    if (isAdmin || isFloppyAdminUser()) {
+      setIsFloppyAdmin(true);
+      showToast("👑 FloppyAdmin Master Bypass Activated!");
+    } else {
+      setIsFloppyAdmin(false);
+      showToast("🔑 Key Activated! 24H Access Unlocked.");
+    }
+    setIsKeyGatewayOpen(false);
   };
 
   const handleToggleFlowFocusMode = () => {
@@ -229,7 +276,7 @@ export default function App() {
       setCurrentFont(user.font);
       applyFont(user.font);
     }
-    showToast(`Welcome back, ${user.name}! 👑 VIP Pass Active`);
+    showToast(`Welcome back, ${user.name}! 👑 Pass Active`);
   };
 
   const handleLogout = () => {
@@ -247,7 +294,6 @@ export default function App() {
     } else {
       nextList = [...enrolledIds, idStr];
       showToast("Successfully Enrolled in Batch!");
-      // Award XP to logged in member
       if (flopperUser) {
         const updated = addFlopperKarma(20);
         if (updated) setFlopperUser(updated);
@@ -257,8 +303,12 @@ export default function App() {
     localStorage.setItem('studybee_wishlist', JSON.stringify(nextList));
   };
 
-  // Launch lecture with XP gain
+  // Launch lecture with Key requirement enforcement
   const handlePlayLecture = (lec: Lecture) => {
+    if (!hasActiveKey() && !isFloppyAdminUser()) {
+      handleOpenKeyGateway(lec.title);
+      return;
+    }
     setSelectedCuratedLecture(lec);
     if (flopperUser) {
       const updated = addFlopperKarma(5);
@@ -266,8 +316,12 @@ export default function App() {
     }
   };
 
-  // Launch video media with XP gain
+  // Launch media with Key requirement enforcement
   const handlePlayMedia = (media: MediaResolutionResult) => {
+    if ((media.requiresKey || !hasActiveKey()) && !isFloppyAdminUser()) {
+      handleOpenKeyGateway(media.title);
+      return;
+    }
     setActiveMedia(media);
     if (flopperUser) {
       const updated = addFlopperKarma(5);
@@ -275,8 +329,12 @@ export default function App() {
     }
   };
 
-  // Launch CBT Assessment with XP gain
+  // Launch test with Key requirement enforcement
   const handleStartTest = (id: string, title: string) => {
+    if (!hasActiveKey() && !isFloppyAdminUser()) {
+      handleOpenKeyGateway(title);
+      return;
+    }
     setActiveTest({ id, title });
     if (flopperUser) {
       const updated = addFlopperKarma(15);
@@ -324,13 +382,14 @@ export default function App() {
 
   const activeThemeObj = THEMES.find(t => t.id === currentTheme) || THEMES[0];
   const userAvatarObj = flopperUser ? (FLOPPER_AVATARS.find(a => a.id === flopperUser.avatar) || FLOPPER_AVATARS[0]) : null;
+  const timeRemaining = getKeyTimeRemaining();
 
   return (
     <div className="min-h-screen relative flex flex-col bg-[#070709] text-stone-200 flowy-mesh">
       
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2.5 px-5 py-3 rounded-full bg-black/90 border border-[#FACC15]/50 text-white text-xs font-bold shadow-2xl backdrop-blur-xl animate-bounce">
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[120] flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-black/95 border border-[#FACC15]/50 text-white text-xs font-bold shadow-2xl backdrop-blur-xl animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-[#FACC15]" />
           <span>{toastMessage}</span>
         </div>
@@ -338,11 +397,11 @@ export default function App() {
 
       {/* Top Navbar */}
       <nav className="w-full z-40 nav-glass h-[70px] sticky top-0 border-b border-white/10 backdrop-blur-xl">
-        <div className="max-w-[92rem] mx-auto px-4 sm:px-6 h-full flex items-center justify-between">
+        <div className="max-w-[92rem] mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-4">
           
           {/* Brand Logo & Name */}
           <div 
-            className="flex items-center gap-3 cursor-pointer btn-click-effect"
+            className="cursor-pointer btn-click-effect shrink-0"
             onClick={() => {
               setActiveCourse(null);
               setCurrentTab('batches');
@@ -350,35 +409,23 @@ export default function App() {
               setSearchQuery('');
             }}
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-black border border-white/15 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg shadow-black/60">
-              <img 
-                src="https://i.ibb.co/yF4mhNPB/f493d534-fbf8-4b31-b741-83b343f8a9e1.jpg" 
-                alt="Logo" 
-                className="w-full h-full object-cover" 
-              />
-            </div>
-            <div>
-              <h1 className="text-lg sm:text-xl font-black tracking-wider text-white font-syne flex items-center gap-1.5">
-                NEXT <span className="text-[#FACC15]">FLOPPERS</span>
-              </h1>
-              <span className="hidden sm:block text-[9px] uppercase font-bold tracking-widest text-stone-400">
-                Education Redefined • All Batches
-              </span>
-            </div>
+            <Logo size="md" showText={true} subtitle="Education Vault · Zero-Lag" />
           </div>
 
-          {/* Desktop Navigation Links */}
-          <div className="hidden md:flex items-center gap-5">
+          {/* Center Navigation Links (Segmented Navigation) */}
+          <div className="hidden lg:flex items-center gap-1.5 p-1 bg-[#121217] rounded-xl border border-white/5">
             <button
               onClick={() => {
                 setActiveCourse(null);
                 setCurrentTab('batches');
               }}
-              className={`text-xs sm:text-sm font-bold transition-all flex items-center gap-2 px-3 py-1.5 rounded-xl btn-click-effect ${
-                currentTab === 'batches' && !activeCourse ? 'bg-white/10 text-[#FACC15]' : 'text-stone-400 hover:text-white'
+              className={`text-xs font-bold transition-all flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg btn-click-effect ${
+                currentTab === 'batches' && !activeCourse 
+                  ? 'bg-[#FACC15] text-black shadow-sm' 
+                  : 'text-stone-400 hover:text-white'
               }`}
             >
-              <LayoutGrid className="w-4 h-4" />
+              <LayoutGrid className="w-3.5 h-3.5" />
               <span>All Batches</span>
             </button>
 
@@ -387,14 +434,16 @@ export default function App() {
                 setActiveCourse(null);
                 setCurrentTab('enrolled');
               }}
-              className={`text-xs sm:text-sm font-bold transition-all flex items-center gap-2 px-3 py-1.5 rounded-xl btn-click-effect relative ${
-                currentTab === 'enrolled' ? 'bg-white/10 text-[#FACC15]' : 'text-stone-400 hover:text-white'
+              className={`text-xs font-bold transition-all flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg btn-click-effect ${
+                currentTab === 'enrolled' 
+                  ? 'bg-[#FACC15] text-black shadow-sm' 
+                  : 'text-stone-400 hover:text-white'
               }`}
             >
-              <Bookmark className="w-4 h-4" />
-              <span>My Enrolled</span>
+              <Bookmark className="w-3.5 h-3.5" />
+              <span>Enrolled</span>
               {enrolledIds.length > 0 && (
-                <span className="bg-[#10B981] text-black text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${currentTab === 'enrolled' ? 'bg-black text-[#FACC15]' : 'bg-[#10B981] text-black'}`}>
                   {enrolledIds.length}
                 </span>
               )}
@@ -405,19 +454,46 @@ export default function App() {
                 setActiveCourse(null);
                 setCurrentTab('curated');
               }}
-              className={`text-xs sm:text-sm font-bold transition-all flex items-center gap-2 px-3 py-1.5 rounded-xl btn-click-effect ${
-                currentTab === 'curated' ? 'bg-white/10 text-[#FACC15]' : 'text-stone-400 hover:text-white'
+              className={`text-xs font-bold transition-all flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg btn-click-effect ${
+                currentTab === 'curated' 
+                  ? 'bg-[#FACC15] text-black shadow-sm' 
+                  : 'text-stone-400 hover:text-white'
               }`}
             >
-              <Sparkles className="w-4 h-4 text-[#FACC15]" />
+              <Sparkles className="w-3.5 h-3.5" />
               <span>Direct Lectures</span>
             </button>
           </div>
 
-          {/* Right Header Controls: Theme Customizer, Flopper Login / Profile & Pass */}
-          <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Right Header Controls */}
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             
-            {/* Theme & Font Customizer Trigger Button */}
+            {/* Quick Header Search Bar */}
+            <div className="hidden xl:flex items-center relative w-56">
+              <Search className="w-3.5 h-3.5 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search batches (/)..."
+                className="w-full bg-[#121217] border border-white/10 rounded-xl pl-8 pr-7 py-1.5 text-xs text-stone-200 placeholder-stone-500 focus:outline-none focus:border-[#FACC15]/60 transition-colors"
+              />
+              {searchQuery ? (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-stone-500 border border-white/10 px-1 rounded">
+                  /
+                </span>
+              )}
+            </div>
+
+            {/* Atmosphere / Theme Trigger */}
             <button
               onClick={() => setIsThemeModalOpen(true)}
               className="p-2 sm:px-3 sm:py-1.5 bg-[#14141a] hover:bg-white/10 border border-white/10 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 btn-click-effect shadow-sm"
@@ -428,22 +504,41 @@ export default function App() {
                 style={{ backgroundColor: activeThemeObj.primaryColor }}
               />
               <Type className="w-4 h-4 text-stone-300" />
-              <span className="hidden lg:inline text-stone-300 font-syne">Style</span>
+              <span className="hidden sm:inline text-stone-300 font-syne">Style</span>
             </button>
 
-            {/* Direct 48H Pass Button */}
-            <button
-              onClick={() => setShowKeyInfoModal(true)}
-              className="hidden sm:flex px-3 py-1.5 bg-[#14141a] hover:bg-white/10 border border-[#FACC15]/40 text-[#FACC15] rounded-xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect shadow-sm"
-              title="Direct Pass Active"
-            >
-              <Key className="w-3.5 h-3.5" />
-              <span className="font-mono text-[11px] font-bold text-white">
-                {activeKey ? activeKey.slice(0, 10) : 'VIP PASS'}
-              </span>
-            </button>
+            {/* Mandatory Key / FloppyAdmin Status Trigger */}
+            {isFloppyAdmin ? (
+              <button
+                onClick={() => setShowKeyInfoModal(true)}
+                className="flex px-3 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/40 text-purple-300 rounded-xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect shadow-sm"
+                title="FloppyAdmin Master Bypass Active (Unlimited)"
+              >
+                <span>👑 FloppyAdmin</span>
+              </button>
+            ) : hasValidKey ? (
+              <button
+                onClick={() => setShowKeyInfoModal(true)}
+                className="hidden sm:flex px-3 py-1.5 bg-[#14141a] hover:bg-white/10 border border-emerald-500/40 text-emerald-400 rounded-xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect shadow-sm"
+                title="Pass Active (Tap to view details)"
+              >
+                <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="font-mono text-[11px] font-bold text-white">
+                  {timeRemaining?.hours ? `${timeRemaining.hours}h left` : 'PASS ACTIVE'}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={() => handleOpenKeyGateway()}
+                className="px-3.5 py-1.5 bg-[#FACC15] hover:bg-yellow-400 text-black rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 btn-click-effect shadow-md font-syne animate-pulse"
+                title="Access Key Required - Complete Ad-Process to get Key"
+              >
+                <Key className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+                <span>Get Key</span>
+              </button>
+            )}
 
-            {/* Exclusive Flopper Login / Member Pill */}
+            {/* Member Card or Join VIP */}
             {flopperUser ? (
               <button
                 onClick={() => setIsProfileModalOpen(true)}
@@ -461,24 +556,25 @@ export default function App() {
             ) : (
               <button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="px-3 sm:px-3.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-black rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 btn-click-effect shadow-md font-syne"
+                className="hidden sm:flex px-3 sm:px-3.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect font-syne"
               >
-                <Crown className="w-3.5 h-3.5 fill-black" />
+                <Crown className="w-3.5 h-3.5 text-[#FACC15]" />
                 <span>Join VIP</span>
               </button>
             )}
 
-            {/* Mobile bookmark button */}
+            {/* Mobile bookmark icon */}
             <button
               onClick={() => {
                 setActiveCourse(null);
                 setCurrentTab('enrolled');
               }}
-              className="md:hidden text-stone-300 p-2 border border-white/10 rounded-xl hover:text-[#FACC15] transition-colors relative bg-white/5"
+              className="lg:hidden text-stone-300 p-2 border border-white/10 rounded-xl hover:text-[#FACC15] transition-colors relative bg-[#14141a]"
+              title="My Enrolled"
             >
               <Bookmark className="w-4 h-4" />
               {enrolledIds.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#10B981] rounded-full"></span>
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#10B981] rounded-full" />
               )}
             </button>
           </div>
@@ -496,6 +592,7 @@ export default function App() {
             onBack={() => setActiveCourse(null)}
             onPlayVideo={handlePlayMedia}
             onStartTest={handleStartTest}
+            onRequireKey={handleOpenKeyGateway}
           />
         ) : (
           <div>
@@ -513,9 +610,35 @@ export default function App() {
                 setCurrentTab('batches');
                 setSelectedCategory(cat);
               }}
+              onOpenKeyGateway={() => handleOpenKeyGateway()}
               totalBatchesCount={batches.length}
               enrolledCount={enrolledIds.length}
             />
+
+            {/* Key Notification Banner if user has NO key */}
+            {!hasValidKey && !isFloppyAdmin && (
+              <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-[#181822] to-amber-500/5 border border-[#FACC15]/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#FACC15]/20 border border-[#FACC15]/30 flex items-center justify-center shrink-0">
+                    <Key className="w-5 h-5 text-[#FACC15]" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-white font-syne flex items-center gap-1.5">
+                      <span>Pass Key Required for Video & PDF Playback</span>
+                    </h4>
+                    <p className="text-[11px] text-stone-400">
+                      Complete a fast sponsored checkpoint (8s) to mint your 24-hour access pass, or enter floppyadmin code.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleOpenKeyGateway()}
+                  className="w-full sm:w-auto px-4 py-2 bg-[#FACC15] hover:bg-yellow-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all btn-click-effect font-syne shrink-0 shadow-md"
+                >
+                  Get 24H Key Now
+                </button>
+              </div>
+            )}
 
             {/* Focus Flow Mode Indicator */}
             {isFlowFocusMode && (
@@ -533,85 +656,67 @@ export default function App() {
               </div>
             )}
 
-            {/* Top Toolbar: Tabs, Categories & Search */}
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-5">
-              
-              {/* Main Tabs (Latest Batches / My Enrolled / Direct Lectures) */}
-              <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto hide-scroll w-full md:w-auto p-1 bg-[#121217] rounded-xl border border-white/5 shadow-inner">
-                <button
-                  onClick={() => setCurrentTab('batches')}
-                  className={`shrink-0 px-3.5 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-2 ${
-                    currentTab === 'batches'
-                      ? 'bg-white/10 text-white border border-white/10 shadow-sm'
-                      : 'bg-transparent text-stone-400 hover:text-white border-transparent'
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-[#FACC15]" />
-                  <span>Latest Batches</span>
-                </button>
-
-                <button
-                  onClick={() => setCurrentTab('enrolled')}
-                  className={`shrink-0 px-3.5 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-2 ${
-                    currentTab === 'enrolled'
-                      ? 'bg-white/10 text-white border border-white/10 shadow-sm'
-                      : 'bg-transparent text-stone-400 hover:text-white border-transparent'
-                  }`}
-                >
-                  <Bookmark className="w-3.5 h-3.5" />
-                  <span>Enrolled</span>
-                  <span className="bg-[#10B981] text-black text-[10px] font-black px-1.5 py-0.2 rounded">
-                    {enrolledIds.length}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => setCurrentTab('curated')}
-                  className={`shrink-0 px-3.5 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-2 ${
-                    currentTab === 'curated'
-                      ? 'bg-white/10 text-white border border-white/10 shadow-sm'
-                      : 'bg-transparent text-stone-400 hover:text-white border-transparent'
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Direct Lectures</span>
-                </button>
-              </div>
-
-              {/* Search Bar */}
-              <div className="relative w-full md:w-[380px]">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Search className="w-4 h-4 text-stone-500" />
-                </div>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search batches (10th, 9th, 12th, Commerce, Nirmaan)..."
-                  className="w-full bg-[#121217] border border-white/10 text-white text-xs sm:text-sm rounded-xl block pl-10 pr-10 py-2.5 transition-all placeholder:text-stone-500 focus:outline-none focus:border-[#FACC15]/60 focus:bg-[#161620]"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-500 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
+            {/* Mobile/Tablet Sub Navbar Tabs */}
+            <div className="flex lg:hidden items-center gap-1 overflow-x-auto hide-scroll p-1 bg-[#121217] rounded-xl border border-white/5 mb-4">
+              <button
+                onClick={() => setCurrentTab('batches')}
+                className={`flex-1 min-w-[100px] text-center px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                  currentTab === 'batches' ? 'bg-[#FACC15] text-black font-extrabold' : 'text-stone-400'
+                }`}
+              >
+                All Batches
+              </button>
+              <button
+                onClick={() => setCurrentTab('enrolled')}
+                className={`flex-1 min-w-[100px] text-center px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                  currentTab === 'enrolled' ? 'bg-[#FACC15] text-black font-extrabold' : 'text-stone-400'
+                }`}
+              >
+                Enrolled ({enrolledIds.length})
+              </button>
+              <button
+                onClick={() => setCurrentTab('curated')}
+                className={`flex-1 min-w-[110px] text-center px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                  currentTab === 'curated' ? 'bg-[#FACC15] text-black font-extrabold' : 'text-stone-400'
+                }`}
+              >
+                Direct Lectures
+              </button>
             </div>
 
-            {/* Category Filter Pills (When on batches or enrolled tabs) */}
+            {/* Search Bar (Mobile & Tablet) */}
+            <div className="xl:hidden relative w-full mb-4">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <Search className="w-4 h-4 text-stone-500" />
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search batches (10th, 9th, 12th, Commerce, Nirmaan)..."
+                className="w-full bg-[#121217] border border-white/10 text-white text-xs sm:text-sm rounded-xl block pl-10 pr-10 py-2.5 transition-all placeholder:text-stone-500 focus:outline-none focus:border-[#FACC15]/60 focus:bg-[#161620]"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-500 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Category Filter Controls */}
             {currentTab !== 'curated' && (
-              <div className="flex items-center gap-2 overflow-x-auto hide-scroll pb-4 mb-4">
+              <div className="flex items-center gap-1.5 overflow-x-auto hide-scroll pb-3 mb-5">
                 {CATEGORY_TABS.map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all btn-click-effect ${
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all btn-click-effect ${
                       selectedCategory === cat
                         ? 'bg-[#FACC15] text-black font-bold shadow-md'
-                        : 'bg-[#14141a] text-stone-400 hover:text-white border border-white/5'
+                        : 'bg-[#121217] text-stone-400 hover:text-white border border-white/5'
                     }`}
                   >
                     {cat}
@@ -620,7 +725,7 @@ export default function App() {
               </div>
             )}
 
-            {/* TAB CONTENT: Curated Quick Lectures */}
+            {/* TAB CONTENT: Curated Direct Lectures */}
             {currentTab === 'curated' ? (
               <div>
                 <div className="mb-4">
@@ -660,7 +765,7 @@ export default function App() {
                     {searchQuery && (
                       <button
                         onClick={() => setSearchQuery('')}
-                        className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold"
+                        className="px-4 py-2 bg-[#FACC15] text-black font-bold rounded-lg text-xs"
                       >
                         Clear Search
                       </button>
@@ -684,6 +789,14 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Key Verification & Ad Checkpoint Modal */}
+      <KeyGatewayModal
+        isOpen={isKeyGatewayOpen}
+        onClose={() => setIsKeyGatewayOpen(false)}
+        onKeyActivated={handleKeyActivated}
+        requiredForTitle={keyGatewayReason}
+      />
 
       {/* Video Modal (handles either activeMedia or selectedCuratedLecture) */}
       {(activeMedia || selectedCuratedLecture) && (
@@ -742,7 +855,7 @@ export default function App() {
 
       {/* Direct Key Info Modal */}
       {showKeyInfoModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-[#121217] border border-white/10 w-full max-w-md rounded-2xl p-6 relative shadow-2xl modal-glass">
             <button
               onClick={() => setShowKeyInfoModal(false)}
@@ -752,38 +865,56 @@ export default function App() {
             </button>
 
             <div className="w-12 h-12 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/30 flex items-center justify-center text-[#FACC15] mb-4">
-              <Key className="w-6 h-6" />
+              <Zap className="w-6 h-6" />
             </div>
 
             <h3 className="text-xl font-bold text-white font-syne mb-1">
-              Direct Streaming Pass Active
+              {isFloppyAdmin ? '👑 FloppyAdmin Master Bypass' : 'Streaming Pass Status'}
             </h3>
             <p className="text-xs text-stone-400 mb-5 leading-relaxed">
-              Your device is pre-authorized with direct CloudFront decryption. All lectures and PDFs play without login barriers!
+              {isFloppyAdmin 
+                ? 'Master access is permanently enabled. All ads and redirection checkpoints are bypassed.'
+                : 'Your device is authenticated with active CloudFront video & PDF decryption.'}
             </p>
 
             <div className="bg-black/50 border border-white/10 rounded-xl p-3 mb-5 flex items-center justify-between">
               <div>
-                <span className="text-[10px] text-stone-500 uppercase font-bold tracking-wider">Your Active Key</span>
-                <div className="font-mono text-xs text-[#10B981] font-bold">{activeKey}</div>
+                <span className="text-[10px] text-stone-500 uppercase font-bold tracking-wider">Active Key</span>
+                <div className="font-mono text-xs text-[#10B981] font-bold truncate max-w-[200px]">
+                  {activeKey || 'SB-AUTO-PASS'}
+                </div>
               </div>
               <div className="px-2 py-1 rounded bg-[#10B981]/10 text-[#10B981] text-[10px] font-bold">
-                UNLIMITED
+                {isFloppyAdmin ? 'LIFETIME' : timeRemaining?.hours ? `${timeRemaining.hours}h left` : '24H PASS'}
               </div>
             </div>
 
-            <button
-              onClick={() => {
-                const newKey = 'NF-' + Math.random().toString(36).substring(2, 7).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
-                localStorage.setItem('studybee_premium_key', newKey);
-                setActiveKey(newKey);
-                showToast("New Pass Key Activated!");
-                setShowKeyInfoModal(false);
-              }}
-              className="w-full py-2.5 bg-[#FACC15] hover:bg-yellow-400 text-black font-bold text-xs rounded-xl transition-colors btn-click-effect shadow-md font-syne"
-            >
-              Regenerate Fresh Pass
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  setShowKeyInfoModal(false);
+                  handleOpenKeyGateway();
+                }}
+                className="w-full py-2.5 bg-[#FACC15] hover:bg-yellow-400 text-black font-bold text-xs rounded-xl transition-colors btn-click-effect shadow-md font-syne"
+              >
+                Mint Fresh Pass (Ad Checkpoint)
+              </button>
+
+              <button
+                onClick={() => {
+                  clearActiveKey();
+                  setActiveKey('');
+                  setHasValidKey(false);
+                  setIsFloppyAdmin(false);
+                  setShowKeyInfoModal(false);
+                  showToast("Pass Removed. Key is now required.");
+                }}
+                className="w-full py-2 text-stone-400 hover:text-red-400 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Remove Key & Reset</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -802,7 +933,7 @@ export default function App() {
             <span>•</span>
             <button 
               onClick={() => setIsThemeModalOpen(true)}
-              className="text-amber-400 hover:underline"
+              className="text-[#FACC15] hover:underline"
             >
               Customize Atmosphere
             </button>

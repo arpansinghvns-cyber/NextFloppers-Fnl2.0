@@ -1,7 +1,6 @@
 import React from 'react';
 import { Play, Clock, User, Loader2, Sparkles } from 'lucide-react';
 import { Lecture } from '../types';
-import { motion } from 'motion/react';
 import { useThumbnail } from '../hooks/useThumbnail';
 
 interface LectureCardProps {
@@ -22,17 +21,19 @@ export const LectureCard: React.FC<LectureCardProps> = ({ lecture, onClick }) =>
   return (
     <div
       onClick={() => onClick(lecture)}
-      className="group cursor-pointer aspect-video relative rounded-2xl overflow-hidden border border-white/10 hover:border-amber-400/40 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/70 bg-[#121216]"
+      className="group cursor-pointer aspect-video relative rounded-2xl overflow-hidden border border-white/10 hover:border-[#FACC15]/40 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/70 bg-[#121216]"
     >
       {isGenerating ? (
         <div className="absolute inset-0 bg-black flex flex-col items-center justify-center gap-3">
-          <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-amber-400/70">Generating Snippet...</span>
+          <Loader2 className="w-8 h-8 text-[#FACC15] animate-spin" />
+          <span className="text-[10px] font-black uppercase tracking-widest text-[#FACC15]/70">Loading Snippet...</span>
         </div>
       ) : (
         <img
           src={thumbnail || lecture.thumbnail || undefined}
           alt={lecture.title}
+          loading="lazy"
+          decoding="async"
           referrerPolicy="no-referrer"
           className="absolute inset-0 w-full h-full object-cover opacity-75 group-hover:opacity-90 transition-all duration-700 group-hover:scale-105"
         />
@@ -45,7 +46,7 @@ export const LectureCard: React.FC<LectureCardProps> = ({ lecture, onClick }) =>
       <div className="absolute inset-0 flex items-center justify-center p-4 text-center">
         {lecture.isLive && (
           <div className="absolute top-3 right-3 z-20">
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-red-600 rounded-full shadow-[0_0_12px_rgba(220,38,38,0.6)] border border-red-500/50">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-red-600 rounded-md shadow-[0_0_12px_rgba(220,38,38,0.6)] border border-red-500/50">
               <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               <span className="text-[9px] font-black text-white uppercase tracking-widest">LIVE</span>
             </div>
@@ -61,11 +62,11 @@ export const LectureCard: React.FC<LectureCardProps> = ({ lecture, onClick }) =>
       
       {/* Bottom info section */}
       <div className="absolute inset-0 p-4 flex flex-col justify-end">
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="px-2 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/30 text-[10px] font-bold uppercase tracking-wider text-amber-300">
-            {lecture.category}
-          </span>
-          <span className="text-[10px] text-stone-400 flex items-center gap-1">
+        {/* Zero-Pill Unboxed Metadata */}
+        <div className="flex items-center gap-2 mb-1.5 text-[11px] text-stone-300 font-semibold">
+          <span className="text-[#FACC15]">{lecture.category}</span>
+          <span aria-hidden="true" className="text-stone-600">·</span>
+          <span className="text-stone-400 flex items-center gap-1">
             <Sparkles className="w-3 h-3 text-[#FACC15]" />
             <span>Fast CDN</span>
           </span>
@@ -80,8 +81,8 @@ export const LectureCard: React.FC<LectureCardProps> = ({ lecture, onClick }) =>
             <User className="w-3 h-3 text-stone-400" />
             <span className="truncate">{lecture.instructor}</span>
           </div>
-          <span className="text-[11px] font-bold text-amber-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
-            Play <Play className="w-3 h-3 fill-amber-400" />
+          <span className="text-[11px] font-bold text-[#FACC15] group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+            Play <Play className="w-3 h-3 fill-[#FACC15]" />
           </span>
         </div>
       </div>
@@ -93,3 +94,5 @@ export const LectureCard: React.FC<LectureCardProps> = ({ lecture, onClick }) =>
     </div>
   );
 };
+
+export default LectureCard;

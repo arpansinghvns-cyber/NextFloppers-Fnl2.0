@@ -1,6 +1,6 @@
 import React from 'react';
 import { BatchItem } from '../types';
-import { Check, Plus, ArrowRight } from 'lucide-react';
+import { Check, Plus, ArrowRight, BookOpen } from 'lucide-react';
 
 interface BatchCardProps {
   batch: BatchItem;
@@ -16,46 +16,65 @@ export const BatchCard: React.FC<BatchCardProps> = ({
   onOpenStudy,
 }) => {
   return (
-    <div className="premium-card rounded-xl overflow-hidden group flex flex-col relative">
-      <div className="relative w-full aspect-[16/9] overflow-hidden bg-black border-b border-white/5">
+    <div 
+      onClick={() => onOpenStudy(batch)}
+      className="premium-card rounded-2xl overflow-hidden group flex flex-col relative cursor-pointer border border-white/10 hover:border-[#FACC15]/40 transition-all duration-300"
+    >
+      {/* Thumbnail Aspect Container */}
+      <div className="relative w-full aspect-[16/9] overflow-hidden bg-black/80">
         <img
           src={batch.thumbnail || undefined}
           alt={batch.title}
           loading="lazy"
+          decoding="async"
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
         />
         
-        <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-transparent to-transparent opacity-90 pointer-events-none"></div>
+        {/* Ambient Dark Gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#101014] via-black/20 to-transparent pointer-events-none" />
 
-        {/* Free Tag */}
-        <div className="absolute top-3 right-3 bg-emerald-500/20 backdrop-blur-md border border-emerald-500/30 px-2 py-1 rounded flex items-center justify-center z-10 shadow-sm">
-          <span className="text-emerald-400 text-[9px] font-black tracking-widest uppercase">FREE</span>
+        {/* Clean Unboxed Metadata in Overlay (Zero-Pill Compliance) */}
+        <div className="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none">
+          {batch.tag ? (
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#FACC15] drop-shadow-md bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
+              {batch.tag}
+            </span>
+          ) : <span />}
+
+          <span className="text-[10px] font-extrabold tracking-wider text-emerald-400 bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-md border border-emerald-500/20">
+            FREE ACCESS
+          </span>
         </div>
-
-        {/* Batch Tag / Category */}
-        {batch.tag && (
-          <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md border border-white/10 px-2 py-0.5 rounded flex items-center justify-center z-10">
-            <span className="text-[#FACC15] text-[9px] font-bold tracking-wider uppercase">{batch.tag}</span>
-          </div>
-        )}
       </div>
 
-      <div className="p-4 sm:p-5 flex flex-col flex-1 relative z-20 justify-between">
-        <h3 className="text-gray-200 font-semibold text-sm leading-relaxed mb-4 line-clamp-2 group-hover:text-white transition-colors">
-          {batch.title}
-        </h3>
+      {/* Content Section */}
+      <div className="p-4 sm:p-5 flex flex-col flex-1 relative z-20 justify-between bg-[#111116] group-hover:bg-[#15151c] transition-colors">
+        <div>
+          {/* Subtle Category Kicker */}
+          <div className="text-[11px] font-medium text-stone-400 mb-1.5 flex items-center gap-1.5">
+            <span>{batch.category || 'Curriculum Batch'}</span>
+            <span aria-hidden="true" className="text-stone-600">·</span>
+            <span className="text-stone-500 font-mono">ID {batch.id}</span>
+          </div>
 
-        <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5 gap-2">
+          <h3 className="text-stone-100 font-bold text-sm leading-snug line-clamp-2 group-hover:text-[#FACC15] transition-colors font-syne">
+            {batch.title}
+          </h3>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center justify-between mt-4 pt-3.5 border-t border-white/5 gap-2">
           {isEnrolled ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleEnroll(batch.id);
               }}
-              className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wider flex items-center gap-1.5 hover:bg-emerald-500/20 transition-colors btn-click-effect shrink-0"
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold tracking-wider flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all btn-click-effect shrink-0"
+              title="Remove from My Enrolled"
             >
               <Check className="w-3.5 h-3.5 text-emerald-400" />
-              <span>ENROLLED</span>
+              <span>SAVED</span>
             </button>
           ) : (
             <button
@@ -63,22 +82,29 @@ export const BatchCard: React.FC<BatchCardProps> = ({
                 e.stopPropagation();
                 onToggleEnroll(batch.id);
               }}
-              className="bg-[#10B981] hover:bg-emerald-400 text-black px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wider flex items-center gap-1.5 transition-colors btn-click-effect shadow-md shrink-0"
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold tracking-wider flex items-center gap-1.5 bg-white/5 hover:bg-white/10 text-stone-300 hover:text-white border border-white/10 transition-all btn-click-effect shrink-0"
+              title="Save to My Enrolled"
             >
-              <Plus className="w-3.5 h-3.5 text-black stroke-[3]" />
+              <Plus className="w-3.5 h-3.5 text-stone-300" />
               <span>ENROLL</span>
             </button>
           )}
 
           <button
-            onClick={() => onOpenStudy(batch)}
-            className="bg-[#FACC15] hover:bg-yellow-400 text-black px-4 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors btn-click-effect shadow-md font-syne shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenStudy(batch);
+            }}
+            className="px-3.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 bg-[#FACC15] hover:bg-yellow-400 text-black transition-all btn-click-effect font-syne shadow-md shadow-[#FACC15]/10 shrink-0"
           >
-            <span>Let's Study</span>
-            <ArrowRight className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+            <BookOpen className="w-3.5 h-3.5 text-black" />
+            <span>Open Vault</span>
+            <ArrowRight className="w-3 h-3 text-black stroke-[2.5]" />
           </button>
         </div>
       </div>
     </div>
   );
 };
+
+export default BatchCard;

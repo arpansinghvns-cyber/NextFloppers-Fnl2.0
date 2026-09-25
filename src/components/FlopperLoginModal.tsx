@@ -21,6 +21,8 @@ import {
   TIER_CONFIG 
 } from '../lib/flopperAuth';
 
+import { Logo } from './Logo';
+
 interface FlopperLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -130,8 +132,8 @@ export const FlopperLoginModal: React.FC<FlopperLoginModalProps> = ({
 
         {/* Modal Branding Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500/20 via-yellow-400/20 to-orange-500/10 border border-amber-400/30 mb-3 shadow-lg shadow-amber-500/10">
-            <Crown className="w-7 h-7 text-[#FACC15]" />
+          <div className="inline-flex items-center justify-center mb-3">
+            <Logo size="lg" />
           </div>
           <h2 className="text-2xl font-black italic tracking-wide text-white uppercase font-syne">
             NEXT <span className="text-[#FACC15]">FLOPPERS</span> SOCIETY
