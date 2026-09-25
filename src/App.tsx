@@ -20,9 +20,12 @@ import {
   Zap, 
   Clock,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  RefreshCw,
+  Users,
+  Radio
 } from 'lucide-react';
-import { BatchItem, Lecture, ThemeId, FontId, FlopperUser } from './types';
+import { BatchItem, Lecture, ThemeId, FlopperUser } from './types';
 import { ALL_BATCHES } from './lib/batchesData';
 import { fetchAllBatches, MediaResolutionResult } from './lib/api';
 import { 
@@ -33,6 +36,7 @@ import {
   clearActiveKey,
   getKeyTimeRemaining 
 } from './lib/keyService';
+import { checkShouldPromptAutoUpdate, markAutoSyncPrompted } from './lib/serverSyncService';
 import { BatchCard } from './components/BatchCard';
 import { CourseExplorer } from './components/CourseExplorer';
 import { VideoModal } from './components/VideoModal';
@@ -43,14 +47,21 @@ import { FlopperLoginModal } from './components/FlopperLoginModal';
 import { FlopperProfileModal } from './components/FlopperProfileModal';
 import { FlowyControlsBanner } from './components/FlowyControlsBanner';
 import { KeyGatewayModal } from './components/KeyGatewayModal';
+import { AutoUpdateModal } from './components/AutoUpdateModal';
+import { DualSystemUpdatePopup } from './components/DualSystemUpdatePopup';
+import { CommunityHub } from './components/CommunityHub';
+import { LiveClassesSection } from './components/LiveClassesSection';
+import { LIVE_CLASSES, LiveClassItem } from './lib/liveClassesData';
+import { 
+  getStoredSyncedStreams, 
+  DualSyncResult, 
+  isEnforceDualCheckEnabled 
+} from './lib/streamSyncService';
 import { Logo } from './components/Logo';
 import { 
   getInitialTheme, 
-  getInitialFont, 
   applyTheme, 
-  applyFont, 
-  THEMES, 
-  FONTS 
+  THEMES 
 } from './lib/themeManager';
 import { 
   getActiveFlopper, 
@@ -69,8 +80,7 @@ const CURATED_LECTURES: Lecture[] = [
     thumbnail: 'https://i.ytimg.com/vi/jZp3-eL_R0c/hqdefault.jpg',
     videoUrl: 'https://d1oxe6vjn5slmc.cloudfront.net/out/v1/df4aad6929d24c36ba38879fa1bf5f8d/index_2.m3u8',
     description: 'Lecture 04: Advanced concepts in Chemical Equations, redox reactions, and expert problem-solving strategies.',
-    category: 'Science',
-    isLive: true
+    category: 'Science'
   },
   {
     id: 'sci-2',
@@ -132,10 +142,19 @@ const CATEGORY_TABS = [
 
 export default function App() {
   const [batches, setBatches] = useState<BatchItem[]>(ALL_BATCHES);
-  const [currentTab, setCurrentTab] = useState<'batches' | 'enrolled' | 'curated'>('batches');
+  const [currentTab, setCurrentTab] = useState<'batches' | 'live' | 'enrolled' | 'community' | 'curated'>('batches');
   const [selectedCategory, setSelectedCategory] = useState<string>('All Batches');
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Dynamically synced live streams from CloudFront & StudyBeePro.site (never hardcoded)
+  const [syncedLiveStreams, setSyncedLiveStreams] = useState<LiveClassItem[]>(getStoredSyncedStreams);
+  const [isDualPopupOpen, setIsDualPopupOpen] = useState(false);
+
+  // Active live broadcast count - strictly derived from verified uploads
+  const liveBroadcastsCount = useMemo(() => {
+    return syncedLiveStreams.filter(c => c.status === 'live').length;
+  }, [syncedLiveStreams]);
 
   const [enrolledIds, setEnrolledIds] = useState<string[]>(() => {
     try {
@@ -145,9 +164,8 @@ export default function App() {
     }
   });
 
-  // Theme & Typography state
+  // Theme state
   const [currentTheme, setCurrentTheme] = useState<ThemeId>(getInitialTheme);
-  const [currentFont, setCurrentFont] = useState<FontId>(getInitialFont);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
   // Exclusive Next Floppers Login & Member state
@@ -179,6 +197,10 @@ export default function App() {
   const [showKeyInfoModal, setShowKeyInfoModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // CloudFront & Server Content Auto-Update state
+  const [isAutoUpdateModalOpen, setIsAutoUpdateModalOpen] = useState(false);
+  const [isAutoPrompt, setIsAutoPrompt] = useState(false);
+
   // Keyboard shortcut listener for fast search '/'
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -191,10 +213,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Initialize theme, font, and asynchronous background sync for GitHub Pages
+  // Initialize theme and asynchronous background sync for GitHub Pages
   useEffect(() => {
     applyTheme(currentTheme);
-    applyFont(currentFont);
 
     // Non-blocking background batch list refresh
     fetchAllBatches().then((list) => {
@@ -210,6 +231,23 @@ export default function App() {
     if (valid) {
       setActiveKey(getActiveKey() || '');
     }
+
+    // Check if enforced dual update popup (CloudFront & StudyBeePro.site) should display on app launch
+    const dualPrompted = sessionStorage.getItem('flopper_dual_sync_prompted');
+    if (!dualPrompted && isEnforceDualCheckEnabled()) {
+      sessionStorage.setItem('flopper_dual_sync_prompted', 'true');
+      const timer = setTimeout(() => {
+        setIsDualPopupOpen(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (checkShouldPromptAutoUpdate()) {
+      markAutoSyncPrompted();
+      const timer = setTimeout(() => {
+        setIsAutoPrompt(true);
+        setIsAutoUpdateModalOpen(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   const showToast = (msg: string) => {
@@ -217,6 +255,20 @@ export default function App() {
     setTimeout(() => {
       setToastMessage(null);
     }, 3200);
+  };
+
+  const handleDualSyncComplete = (res: DualSyncResult) => {
+    setSyncedLiveStreams(res.syncedLiveStreams);
+    fetchAllBatches(true).then((list) => {
+      if (list && list.length > 0) {
+        setBatches(list);
+      }
+    });
+    if (res.hasNewStreams) {
+      showToast(`⚡ Synced ${res.activeStreamsCount} live stream from CloudFront!`);
+    } else {
+      showToast("✓ CloudFront & StudyBee verified. Both systems synced.");
+    }
   };
 
   const handleOpenKeyGateway = (reason?: string) => {
@@ -237,6 +289,15 @@ export default function App() {
     setIsKeyGatewayOpen(false);
   };
 
+  const handleContentUpdated = (batchesCount: number) => {
+    fetchAllBatches(true).then((list) => {
+      if (list && list.length > 0) {
+        setBatches(list);
+      }
+    });
+    showToast(`⚡ Synced ${batchesCount} batches & refreshed CloudFront streams!`);
+  };
+
   const handleToggleFlowFocusMode = () => {
     const nextVal = !isFlowFocusMode;
     setIsFlowFocusMode(nextVal);
@@ -255,26 +316,11 @@ export default function App() {
     showToast(`Atmosphere set to ${newTheme.toUpperCase()}`);
   };
 
-  const handleFontChange = (newFont: FontId) => {
-    setCurrentFont(newFont);
-    applyFont(newFont);
-    if (flopperUser) {
-      const updated = { ...flopperUser, font: newFont };
-      setFlopperUser(updated);
-      saveActiveFlopper(updated);
-    }
-    showToast(`Typography set to ${newFont.toUpperCase()}`);
-  };
-
   const handleAuthSuccess = (user: FlopperUser) => {
     setFlopperUser(user);
     if (user.theme) {
       setCurrentTheme(user.theme);
       applyTheme(user.theme);
-    }
-    if (user.font) {
-      setCurrentFont(user.font);
-      applyFont(user.font);
     }
     showToast(`Welcome back, ${user.name}! 👑 Pass Active`);
   };
@@ -412,17 +458,17 @@ export default function App() {
             <Logo size="md" showText={true} subtitle="Education Vault · Zero-Lag" />
           </div>
 
-          {/* Center Navigation Links (Segmented Navigation) */}
-          <div className="hidden lg:flex items-center gap-1.5 p-1 bg-[#121217] rounded-xl border border-white/5">
+          {/* Center Navigation Links (Nothing Segmented Navigation) */}
+          <div className="hidden lg:flex items-center gap-1.5 p-1 bg-[#0a0a0f] rounded-2xl border border-white/10 font-doto uppercase">
             <button
               onClick={() => {
                 setActiveCourse(null);
                 setCurrentTab('batches');
               }}
-              className={`text-xs font-bold transition-all flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg btn-click-effect ${
+              className={`text-xs font-bold transition-all flex items-center gap-2 px-4 py-2 rounded-xl btn-click-effect ${
                 currentTab === 'batches' && !activeCourse 
-                  ? 'bg-[#FACC15] text-black shadow-sm' 
-                  : 'text-stone-400 hover:text-white'
+                  ? 'bg-white text-black shadow-sm font-black' 
+                  : 'text-neutral-400 hover:text-white'
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
@@ -432,18 +478,45 @@ export default function App() {
             <button
               onClick={() => {
                 setActiveCourse(null);
+                setCurrentTab('live');
+              }}
+              className={`text-xs font-bold transition-all flex items-center gap-2 px-4 py-2 rounded-xl btn-click-effect ${
+                currentTab === 'live' 
+                  ? 'bg-white text-black shadow-sm font-black' 
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Radio className={`w-3.5 h-3.5 ${currentTab === 'live' ? 'text-[#E60000]' : (liveBroadcastsCount > 0 ? 'text-red-500 animate-pulse' : 'text-neutral-400')}`} />
+              <span>Live Schedule</span>
+              {liveBroadcastsCount > 0 ? (
+                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1 ${
+                  currentTab === 'live' ? 'bg-[#E60000] text-white' : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                }`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping" />
+                  {liveBroadcastsCount} LIVE
+                </span>
+              ) : (
+                <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400 border border-white/10">
+                  OFF-AIR
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveCourse(null);
                 setCurrentTab('enrolled');
               }}
-              className={`text-xs font-bold transition-all flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg btn-click-effect ${
+              className={`text-xs font-bold transition-all flex items-center gap-2 px-4 py-2 rounded-xl btn-click-effect ${
                 currentTab === 'enrolled' 
-                  ? 'bg-[#FACC15] text-black shadow-sm' 
-                  : 'text-stone-400 hover:text-white'
+                  ? 'bg-white text-black shadow-sm font-black' 
+                  : 'text-neutral-400 hover:text-white'
               }`}
             >
               <Bookmark className="w-3.5 h-3.5" />
               <span>Enrolled</span>
               {enrolledIds.length > 0 && (
-                <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${currentTab === 'enrolled' ? 'bg-black text-[#FACC15]' : 'bg-[#10B981] text-black'}`}>
+                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full ${currentTab === 'enrolled' ? 'bg-[#E60000] text-white' : 'bg-white/15 text-white'}`}>
                   {enrolledIds.length}
                 </span>
               )}
@@ -452,12 +525,28 @@ export default function App() {
             <button
               onClick={() => {
                 setActiveCourse(null);
+                setCurrentTab('community');
+              }}
+              className={`text-xs font-bold transition-all flex items-center gap-2 px-4 py-2 rounded-xl btn-click-effect ${
+                currentTab === 'community' 
+                  ? 'bg-white text-black shadow-sm font-black' 
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5 text-[#E60000]" />
+              <span>Community</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${currentTab === 'community' ? 'bg-black' : 'bg-[#E60000] animate-pulse'}`} />
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveCourse(null);
                 setCurrentTab('curated');
               }}
-              className={`text-xs font-bold transition-all flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg btn-click-effect ${
+              className={`text-xs font-bold transition-all flex items-center gap-2 px-4 py-2 rounded-xl btn-click-effect ${
                 currentTab === 'curated' 
-                  ? 'bg-[#FACC15] text-black shadow-sm' 
-                  : 'text-stone-400 hover:text-white'
+                  ? 'bg-white text-black shadow-sm font-black' 
+                  : 'text-neutral-400 hover:text-white'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -470,59 +559,71 @@ export default function App() {
             
             {/* Quick Header Search Bar */}
             <div className="hidden xl:flex items-center relative w-56">
-              <Search className="w-3.5 h-3.5 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search batches (/)..."
-                className="w-full bg-[#121217] border border-white/10 rounded-xl pl-8 pr-7 py-1.5 text-xs text-stone-200 placeholder-stone-500 focus:outline-none focus:border-[#FACC15]/60 transition-colors"
+                placeholder="Search vault (/)..."
+                className="w-full bg-[#0d0d12] border border-white/10 rounded-2xl pl-9 pr-7 py-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-white/30 transition-colors font-mono"
               />
               {searchQuery ? (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               ) : (
-                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-stone-500 border border-white/10 px-1 rounded">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono text-neutral-500 border border-white/10 px-1.5 py-0.5 rounded-lg bg-black">
                   /
                 </span>
               )}
             </div>
 
+            {/* CloudFront CDN & Content Live Auto-Update Trigger */}
+            <button
+              onClick={() => setIsDualPopupOpen(true)}
+              className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl text-xs font-bold transition-all flex items-center gap-2 btn-click-effect shadow-sm font-doto tracking-wider uppercase"
+              title="Enforce updates checking both CloudFront and studybeepro.site"
+            >
+              <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />
+              <RefreshCw className="w-3.5 h-3.5 text-neutral-300" />
+              <span className="hidden sm:inline text-[11px] text-white">DUAL SYNC</span>
+            </button>
+
             {/* Atmosphere / Theme Trigger */}
             <button
               onClick={() => setIsThemeModalOpen(true)}
-              className="p-2 sm:px-3 sm:py-1.5 bg-[#14141a] hover:bg-white/10 border border-white/10 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 btn-click-effect shadow-sm"
+              className="p-2 sm:px-3 sm:py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl text-xs font-bold transition-all flex items-center gap-2 btn-click-effect shadow-sm font-doto uppercase"
               title="Customize Themes & Fonts"
             >
               <div 
                 className="w-2.5 h-2.5 rounded-full shadow-sm"
                 style={{ backgroundColor: activeThemeObj.primaryColor }}
               />
-              <Type className="w-4 h-4 text-stone-300" />
-              <span className="hidden sm:inline text-stone-300 font-syne">Style</span>
+              <Type className="w-3.5 h-3.5 text-neutral-400" />
+              <span className="hidden sm:inline text-neutral-200 text-[11px]">ATMOS</span>
             </button>
 
             {/* Mandatory Key / FloppyAdmin Status Trigger */}
             {isFloppyAdmin ? (
               <button
                 onClick={() => setShowKeyInfoModal(true)}
-                className="flex px-3 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/40 text-purple-300 rounded-xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect shadow-sm"
+                className="flex px-3 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-2xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect shadow-sm font-doto uppercase"
                 title="FloppyAdmin Master Bypass Active (Unlimited)"
               >
-                <span>👑 FloppyAdmin</span>
+                <span className="w-2 h-2 rounded-full bg-[#E60000]" />
+                <span>ADMIN</span>
               </button>
             ) : hasValidKey ? (
               <button
                 onClick={() => setShowKeyInfoModal(true)}
-                className="hidden sm:flex px-3 py-1.5 bg-[#14141a] hover:bg-white/10 border border-emerald-500/40 text-emerald-400 rounded-xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect shadow-sm"
+                className="hidden sm:flex px-3 py-2 bg-[#0c0c10] hover:bg-white/10 border border-white/15 text-white rounded-2xl text-xs font-bold transition-all items-center gap-2 btn-click-effect shadow-sm font-doto uppercase"
                 title="Pass Active (Tap to view details)"
               >
-                <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="font-mono text-[11px] font-bold text-white">
                   {timeRemaining?.hours ? `${timeRemaining.hours}h left` : 'PASS ACTIVE'}
                 </span>
@@ -530,11 +631,11 @@ export default function App() {
             ) : (
               <button
                 onClick={() => handleOpenKeyGateway()}
-                className="px-3.5 py-1.5 bg-[#FACC15] hover:bg-yellow-400 text-black rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 btn-click-effect shadow-md font-syne animate-pulse"
+                className="px-4 py-2 bg-[#E60000] hover:bg-red-600 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 btn-click-effect shadow-[0_0_20px_rgba(230,0,0,0.4)] font-doto"
                 title="Access Key Required - Complete Ad-Process to get Key"
               >
-                <Key className="w-3.5 h-3.5 text-black stroke-[2.5]" />
-                <span>Get Key</span>
+                <Key className="w-3.5 h-3.5 text-white stroke-[2.5]" />
+                <span>GET KEY</span>
               </button>
             )}
 
@@ -542,24 +643,24 @@ export default function App() {
             {flopperUser ? (
               <button
                 onClick={() => setIsProfileModalOpen(true)}
-                className="px-2.5 sm:px-3 py-1.5 bg-gradient-to-r from-amber-500/15 via-[#181824] to-cyan-500/10 hover:border-amber-400/50 border border-white/15 rounded-xl text-xs font-bold transition-all flex items-center gap-2 btn-click-effect shadow-sm group"
+                className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/15 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 btn-click-effect shadow-sm group font-doto uppercase"
                 title="Open Next Floppers Member Card"
               >
                 <span className="text-base">{userAvatarObj?.icon || '👑'}</span>
-                <span className="font-syne font-black text-white text-xs max-w-[80px] sm:max-w-[110px] truncate group-hover:text-amber-300">
+                <span className="font-bold text-white text-xs max-w-[80px] sm:max-w-[110px] truncate">
                   {flopperUser.name.split(' ')[0]}
                 </span>
-                <span className="hidden sm:inline font-mono text-[10px] text-amber-400 font-bold">
+                <span className="hidden sm:inline font-mono text-[10px] text-[#E60000] font-bold">
                   {flopperUser.streakDays}d🔥
                 </span>
               </button>
             ) : (
               <button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="hidden sm:flex px-3 sm:px-3.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect font-syne"
+                className="hidden sm:flex px-3.5 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl text-xs font-bold transition-all items-center gap-1.5 btn-click-effect font-doto uppercase"
               >
-                <Crown className="w-3.5 h-3.5 text-[#FACC15]" />
-                <span>Join VIP</span>
+                <Crown className="w-3.5 h-3.5 text-neutral-300" />
+                <span>VIP</span>
               </button>
             )}
 
@@ -600,7 +701,6 @@ export default function App() {
             <FlowyControlsBanner
               user={flopperUser}
               currentTheme={currentTheme}
-              currentFont={currentFont}
               isFlowFocusMode={isFlowFocusMode}
               onToggleFlowFocusMode={handleToggleFlowFocusMode}
               onOpenThemeCustomizer={() => setIsThemeModalOpen(true)}
@@ -610,96 +710,127 @@ export default function App() {
                 setCurrentTab('batches');
                 setSelectedCategory(cat);
               }}
+              onOpenCommunity={() => {
+                setActiveCourse(null);
+                setCurrentTab('community');
+              }}
+              onOpenLiveClasses={() => {
+                setActiveCourse(null);
+                setCurrentTab('live');
+              }}
               onOpenKeyGateway={() => handleOpenKeyGateway()}
+              onOpenAutoUpdateModal={() => {
+                setIsAutoPrompt(false);
+                setIsAutoUpdateModalOpen(true);
+              }}
+              onOpenDualUpdatePopup={() => setIsDualPopupOpen(true)}
               totalBatchesCount={batches.length}
               enrolledCount={enrolledIds.length}
             />
 
             {/* Key Notification Banner if user has NO key */}
             {!hasValidKey && !isFloppyAdmin && (
-              <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-[#181822] to-amber-500/5 border border-[#FACC15]/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#FACC15]/20 border border-[#FACC15]/30 flex items-center justify-center shrink-0">
-                    <Key className="w-5 h-5 text-[#FACC15]" />
+              <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-[#0a0a0e] border border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl nothing-dot-bg">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 text-[#E60000]">
+                    <Key className="w-6 h-6 stroke-[2]" />
                   </div>
                   <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-white font-syne flex items-center gap-1.5">
-                      <span>Pass Key Required for Video & PDF Playback</span>
+                    <h4 className="text-xs sm:text-sm font-bold text-white font-doto uppercase tracking-wider flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />
+                      <span>PASS KEY REQUIRED FOR PLAYBACK</span>
                     </h4>
-                    <p className="text-[11px] text-stone-400">
-                      Complete a fast sponsored checkpoint (8s) to mint your 24-hour access pass, or enter floppyadmin code.
+                    <p className="text-xs text-neutral-400 mt-0.5 font-sans">
+                      Complete a fast sponsored checkpoint (8s) to mint your 24-hour pass, or use floppyadmin master key.
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={() => handleOpenKeyGateway()}
-                  className="w-full sm:w-auto px-4 py-2 bg-[#FACC15] hover:bg-yellow-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all btn-click-effect font-syne shrink-0 shadow-md"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-[#E60000] hover:bg-red-600 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-all btn-click-effect font-doto shrink-0 shadow-[0_0_20px_rgba(230,0,0,0.4)]"
                 >
-                  Get 24H Key Now
+                  GET KEY (24H PASS)
                 </button>
               </div>
             )}
 
             {/* Focus Flow Mode Indicator */}
             {isFlowFocusMode && (
-              <div className="mb-4 px-4 py-2 rounded-xl bg-amber-400/10 border border-amber-400/30 flex items-center justify-between text-xs text-amber-300">
-                <span className="flex items-center gap-2 font-bold">
-                  <span>🧘 Flow Focus Mode Active</span>
-                  <span className="text-stone-400 font-normal">| Distraction-free lecture stream</span>
+              <div className="mb-5 px-5 py-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between text-xs text-neutral-200 font-doto">
+                <span className="flex items-center gap-2.5 font-bold uppercase tracking-wider">
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  <span>FLOW FOCUS ACTIVE // MINIMALIST STUDY VIEW</span>
                 </span>
                 <button
                   onClick={handleToggleFlowFocusMode}
-                  className="text-stone-400 hover:text-white underline text-[11px]"
+                  className="text-neutral-400 hover:text-white underline text-[11px] uppercase tracking-wider"
                 >
-                  Exit Focus Mode
+                  [ EXIT FOCUS ]
                 </button>
               </div>
             )}
 
             {/* Mobile/Tablet Sub Navbar Tabs */}
-            <div className="flex lg:hidden items-center gap-1 overflow-x-auto hide-scroll p-1 bg-[#121217] rounded-xl border border-white/5 mb-4">
+            <div className="flex lg:hidden items-center gap-1.5 overflow-x-auto hide-scroll p-1.5 bg-[#0a0a0f] rounded-2xl border border-white/10 mb-5 font-doto uppercase text-xs">
               <button
                 onClick={() => setCurrentTab('batches')}
-                className={`flex-1 min-w-[100px] text-center px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                  currentTab === 'batches' ? 'bg-[#FACC15] text-black font-extrabold' : 'text-stone-400'
+                className={`flex-1 min-w-[95px] text-center px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  currentTab === 'batches' ? 'bg-white text-black font-black shadow-sm' : 'text-neutral-400'
                 }`}
               >
                 All Batches
               </button>
               <button
+                onClick={() => setCurrentTab('live')}
+                className={`flex-1 min-w-[95px] text-center px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  currentTab === 'live' ? 'bg-white text-black font-black shadow-sm' : 'text-neutral-400'
+                }`}
+              >
+                <Radio className={`w-3 h-3 ${liveBroadcastsCount > 0 ? 'text-[#E60000] animate-pulse' : 'text-neutral-500'}`} />
+                <span>Live {liveBroadcastsCount > 0 ? `(${liveBroadcastsCount})` : '(Off-Air)'}</span>
+              </button>
+              <button
                 onClick={() => setCurrentTab('enrolled')}
-                className={`flex-1 min-w-[100px] text-center px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                  currentTab === 'enrolled' ? 'bg-[#FACC15] text-black font-extrabold' : 'text-stone-400'
+                className={`flex-1 min-w-[95px] text-center px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  currentTab === 'enrolled' ? 'bg-white text-black font-black shadow-sm' : 'text-neutral-400'
                 }`}
               >
                 Enrolled ({enrolledIds.length})
               </button>
               <button
-                onClick={() => setCurrentTab('curated')}
-                className={`flex-1 min-w-[110px] text-center px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                  currentTab === 'curated' ? 'bg-[#FACC15] text-black font-extrabold' : 'text-stone-400'
+                onClick={() => setCurrentTab('community')}
+                className={`flex-1 min-w-[105px] text-center px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  currentTab === 'community' ? 'bg-white text-black font-black shadow-sm' : 'text-neutral-400'
                 }`}
               >
-                Direct Lectures
+                Community
+              </button>
+              <button
+                onClick={() => setCurrentTab('curated')}
+                className={`flex-1 min-w-[105px] text-center px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  currentTab === 'curated' ? 'bg-white text-black font-black shadow-sm' : 'text-neutral-400'
+                }`}
+              >
+                Direct
               </button>
             </div>
 
             {/* Search Bar (Mobile & Tablet) */}
-            <div className="xl:hidden relative w-full mb-4">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                <Search className="w-4 h-4 text-stone-500" />
+            <div className="xl:hidden relative w-full mb-5">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <Search className="w-4 h-4 text-neutral-500" />
               </div>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search batches (10th, 9th, 12th, Commerce, Nirmaan)..."
-                className="w-full bg-[#121217] border border-white/10 text-white text-xs sm:text-sm rounded-xl block pl-10 pr-10 py-2.5 transition-all placeholder:text-stone-500 focus:outline-none focus:border-[#FACC15]/60 focus:bg-[#161620]"
+                className="w-full bg-[#0a0a0e] border border-white/10 text-white text-xs sm:text-sm rounded-2xl block pl-11 pr-10 py-3 transition-all placeholder:text-neutral-500 focus:outline-none focus:border-white/30 focus:bg-[#0f0f14] font-mono"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-500 hover:text-white"
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-neutral-500 hover:text-white"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -707,16 +838,16 @@ export default function App() {
             </div>
 
             {/* Category Filter Controls */}
-            {currentTab !== 'curated' && (
-              <div className="flex items-center gap-1.5 overflow-x-auto hide-scroll pb-3 mb-5">
+            {currentTab !== 'curated' && currentTab !== 'community' && currentTab !== 'live' && (
+              <div className="flex items-center gap-2 overflow-x-auto hide-scroll pb-3.5 mb-6 font-doto uppercase">
                 {CATEGORY_TABS.map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all btn-click-effect ${
+                    className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all btn-click-effect tracking-wider ${
                       selectedCategory === cat
-                        ? 'bg-[#FACC15] text-black font-bold shadow-md'
-                        : 'bg-[#121217] text-stone-400 hover:text-white border border-white/5'
+                        ? 'bg-white text-black shadow-md border border-white'
+                        : 'bg-[#0a0a0e] text-neutral-400 hover:text-white border border-white/10 hover:border-white/20'
                     }`}
                   >
                     {cat}
@@ -725,16 +856,37 @@ export default function App() {
               </div>
             )}
 
-            {/* TAB CONTENT: Curated Direct Lectures */}
-            {currentTab === 'curated' ? (
+            {/* TAB CONTENT: Live Classes Broadcast Center */}
+            {currentTab === 'live' ? (
+              <LiveClassesSection
+                onPlayLecture={handlePlayLecture}
+                onOpenBatch={(bId) => {
+                  const found = batches.find(b => b.id === bId || String(b.id) === String(bId));
+                  if (found) {
+                    setActiveCourse(found);
+                  } else {
+                    showToast('Module selected.');
+                  }
+                }}
+                onShowToast={showToast}
+                onOpenDualUpdatePopup={() => setIsDualPopupOpen(true)}
+                syncedLiveStreams={syncedLiveStreams}
+              />
+            ) : currentTab === 'community' ? (
+              <CommunityHub
+                user={flopperUser}
+                onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                onShowToast={showToast}
+              />
+            ) : currentTab === 'curated' ? (
               <div>
-                <div className="mb-4">
-                  <h2 className="text-lg font-bold text-white font-syne flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-[#FACC15]" />
-                    <span>Curated Fast-Stream Lectures</span>
+                <div className="mb-5 p-4 sm:p-5 rounded-3xl bg-[#0a0a0e] border border-white/10 nothing-dot-bg">
+                  <h2 className="text-base sm:text-lg font-bold text-white font-doto uppercase tracking-wider flex items-center gap-2.5">
+                    <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />
+                    <span>CURATED DIRECT STREAM ARCHIVE</span>
                   </h2>
-                  <p className="text-xs text-stone-400">
-                    Direct access to Chemical Reactions L2, L3, L4, Development, Real Numbers and English literature with auto-relocation.
+                  <p className="text-xs text-neutral-400 mt-1 font-sans">
+                    Zero-redirect instant access to high-priority Science, Math, and English core lectures.
                   </p>
                 </div>
 
@@ -752,22 +904,24 @@ export default function App() {
               /* TAB CONTENT: Batches Grid */
               <div>
                 {filteredBatches.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-center bg-[#121217]/50 border border-white/5 rounded-2xl">
-                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-3">
-                      <GraduationCap className="w-8 h-8 text-stone-600" />
+                  <div className="flex flex-col items-center justify-center py-20 text-center bg-[#0a0a0e] border border-white/10 rounded-3xl nothing-dot-bg p-6">
+                    <div className="w-16 h-16 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center mb-4 text-[#E60000]">
+                      <GraduationCap className="w-8 h-8" />
                     </div>
-                    <h3 className="text-lg font-bold text-white mb-1 font-syne">No Batches Found</h3>
-                    <p className="text-stone-400 text-xs max-w-sm mb-4">
+                    <h3 className="text-base font-bold text-white mb-1 font-doto uppercase tracking-wider">
+                      [ NO BATCHES MATCHED ]
+                    </h3>
+                    <p className="text-neutral-400 text-xs max-w-sm mb-5 font-sans leading-relaxed">
                       {currentTab === 'enrolled'
-                        ? 'You have not enrolled in any batches yet. Click ENROLL on any batch to save it here.'
-                        : 'Try adjusting your search query or choosing another category filter.'}
+                        ? 'No saved modules in your vault. Click SAVE on any course to pin it here.'
+                        : 'No results found for your query. Try clearing search filters.'}
                     </p>
                     {searchQuery && (
                       <button
                         onClick={() => setSearchQuery('')}
-                        className="px-4 py-2 bg-[#FACC15] text-black font-bold rounded-lg text-xs"
+                        className="px-5 py-2.5 bg-white text-black font-doto font-bold rounded-2xl text-xs uppercase tracking-wider hover:bg-[#E60000] hover:text-white transition-all shadow-md"
                       >
-                        Clear Search
+                        RESET SEARCH
                       </button>
                     )}
                   </div>
@@ -821,14 +975,12 @@ export default function App() {
         />
       )}
 
-      {/* Theme & Typography Customizer Modal */}
+      {/* Theme Atmosphere Modal */}
       <ThemeCustomizerModal
         isOpen={isThemeModalOpen}
         onClose={() => setIsThemeModalOpen(false)}
         currentTheme={currentTheme}
-        currentFont={currentFont}
         onThemeChange={handleThemeChange}
-        onFontChange={handleFontChange}
       />
 
       {/* Exclusive Flopper Society Login Modal */}
@@ -919,23 +1071,41 @@ export default function App() {
         </div>
       )}
 
+      {/* CloudFront CDN & Content Live Auto-Update Modal */}
+      <AutoUpdateModal
+        isOpen={isAutoUpdateModalOpen}
+        onClose={() => setIsAutoUpdateModalOpen(false)}
+        onContentUpdated={handleContentUpdated}
+        isAutoPrompt={isAutoPrompt}
+      />
+
+      {/* Small Popup Enforcing Dual System Updates (CloudFront & StudyBeePro.site) */}
+      <DualSystemUpdatePopup
+        isOpen={isDualPopupOpen}
+        onClose={() => setIsDualPopupOpen(false)}
+        onSyncComplete={handleDualSyncComplete}
+        autoStartOnOpen={true}
+      />
+
       {/* Footer */}
-      <footer className="w-full border-t border-white/5 py-6 bg-[#0a0a0d] mt-auto">
-        <div className="max-w-[92rem] mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500">
+      <footer className="w-full border-t border-white/10 py-8 bg-[#050507] mt-auto font-doto uppercase">
+        <div className="max-w-[92rem] mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-neutral-500">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-white font-syne">NEXT FLOPPERS</span>
-            <span>• Free High-Quality Education Portal</span>
+            <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />
+            <span className="font-bold text-white tracking-wider">NEXT FLOPPERS (2.0)</span>
+            <span className="text-neutral-600">/</span>
+            <span className="font-mono text-neutral-400 text-[11px]">NOTHING OS EDUCATION VAULT</span>
           </div>
-          <div className="flex items-center gap-4 text-[11px]">
-            <span>Theme: {activeThemeObj.name}</span>
-            <span>•</span>
-            <span>Typography: {currentFont.toUpperCase()}</span>
-            <span>•</span>
+          <div className="flex items-center gap-4 text-[11px] font-mono">
+            <span>ATMOS: <strong className="text-white">{activeThemeObj.name}</strong></span>
+            <span className="text-neutral-700">•</span>
+            <span>NOTHING OS 3.0 MESH</span>
+            <span className="text-neutral-700">•</span>
             <button 
               onClick={() => setIsThemeModalOpen(true)}
-              className="text-[#FACC15] hover:underline"
+              className="text-[#E60000] hover:underline font-bold"
             >
-              Customize Atmosphere
+              [ ATMOSPHERE ]
             </button>
           </div>
         </div>

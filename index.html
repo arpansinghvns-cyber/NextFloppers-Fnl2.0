@@ -45,19 +45,25 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
-    <!-- Streamlined Google Fonts (display=swap for zero render-blocking text) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+    <!-- Google Fonts: Doto (Nothing Dot Matrix font) + Space Grotesk (Nothing Sans) + JetBrains Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=Doto:wght@400;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
   </head>
-  <body class="min-h-screen bg-[#070709] text-[#e5e5e5] font-sans antialiased overflow-x-hidden selection:bg-[#FACC15]/30 selection:text-white">
+  <body class="min-h-screen bg-[#060608] text-[#f2f2f2] font-sans antialiased overflow-x-hidden selection:bg-[#E60000]/30 selection:text-white">
     <div id="root">
-      <!-- Dark Loading Skeleton to avoid any blank white screen -->
-      <div style="min-height: 100vh; background-color: #070709; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: system-ui, sans-serif; color: #e5e5e5;">
-        <div style="width: 44px; height: 44px; border: 3px solid rgba(250, 204, 21, 0.15); border-top-color: #FACC15; border-radius: 50%; animation: nf-spin 0.75s linear infinite; margin-bottom: 16px;"></div>
-        <div style="font-weight: 800; font-size: 16px; letter-spacing: 0.12em; color: #ffffff;">NEXT <span style="color: #FACC15;">FLOPPERS</span></div>
-        <div style="font-size: 11px; color: #71717a; margin-top: 6px;">Initializing Study Vault...</div>
+      <!-- Nothing OS Styled Loading Skeleton -->
+      <div style="min-height: 100vh; background-color: #060608; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Space Grotesk', system-ui, sans-serif; color: #f2f2f2;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+          <div style="width: 10px; height: 10px; border-radius: 50%; background-color: #E60000; box-shadow: 0 0 14px #E60000; animation: nf-pulse 1s infinite alternate;"></div>
+          <div style="font-family: 'Doto', monospace; font-weight: 900; font-size: 24px; letter-spacing: 0.15em; color: #ffffff;">FLOPPERS<span style="color: #E60000;">(1)</span></div>
+        </div>
+        <div style="width: 180px; height: 2px; background: rgba(255,255,255,0.08); position: relative; overflow: hidden; border-radius: 2px;">
+          <div style="position: absolute; top: 0; left: 0; height: 100%; width: 40%; background: #E60000; animation: nf-bar 1.2s infinite ease-in-out;"></div>
+        </div>
+        <div style="font-family: 'Doto', monospace; font-size: 11px; color: #71717a; margin-top: 14px; letter-spacing: 0.1em; text-transform: uppercase;">[ BOOTING NOTHING ENGINE ]</div>
       </div>
       <style>
-        @keyframes nf-spin { to { transform: rotate(360deg); } }
+        @keyframes nf-pulse { 0% { opacity: 0.4; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1.1); } }
+        @keyframes nf-bar { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
       </style>
     </div>
     <script type="module" src="/src/main.tsx"></script>

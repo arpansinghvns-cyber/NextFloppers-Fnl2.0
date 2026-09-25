@@ -70,7 +70,7 @@ export const CourseExplorer: React.FC<CourseExplorerProps> = ({
   
   // In-Course Search & Type Filter
   const [inCourseSearch, setInCourseSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'folders' | 'videos' | 'pdfs' | 'tests'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'live' | 'folders' | 'videos' | 'pdfs' | 'tests'>('all');
 
   // Load Overview & Initial Folder
   useEffect(() => {
@@ -134,12 +134,19 @@ export const CourseExplorer: React.FC<CourseExplorerProps> = ({
     return h > 0 ? `${h}:${mStr}:${sStr}` : `${mStr}:${sStr}`;
   };
 
+  // Count live classes in current folder
+  const liveCount = useMemo(() => {
+    return items.filter(i => i.type === 'file' && (i.data?.is_live === 1 || i.title.toLowerCase().includes('live'))).length;
+  }, [items]);
+
   // Filter items in real time
   const filteredItems = useMemo(() => {
     let res = items;
 
     if (typeFilter !== 'all') {
-      if (typeFilter === 'folders') {
+      if (typeFilter === 'live') {
+        res = res.filter(i => i.type === 'file' && (i.data?.is_live === 1 || i.title.toLowerCase().includes('live')));
+      } else if (typeFilter === 'folders') {
         res = res.filter(i => i.type === 'folder');
       } else if (typeFilter === 'videos') {
         res = res.filter(i => i.type === 'file' && i.data?.file_type !== 1);
@@ -383,53 +390,66 @@ export const CourseExplorer: React.FC<CourseExplorerProps> = ({
             </div>
 
             {/* Type Filter Buttons */}
-            <div className="flex items-center gap-1 overflow-x-auto hide-scroll text-xs">
+            <div className="flex items-center gap-1.5 overflow-x-auto hide-scroll text-xs font-doto uppercase">
               <button
                 onClick={() => setTypeFilter('all')}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl font-bold transition-colors shrink-0 ${
                   typeFilter === 'all'
-                    ? 'bg-[#FACC15] text-black'
-                    : 'bg-white/5 text-stone-400 hover:text-white'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'bg-white/5 text-neutral-400 hover:text-white'
                 }`}
               >
                 All ({items.length})
               </button>
+              {liveCount > 0 && (
+                <button
+                  onClick={() => setTypeFilter('live')}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                    typeFilter === 'live'
+                      ? 'bg-[#E60000] text-white shadow-[0_0_12px_rgba(230,0,0,0.5)]'
+                      : 'bg-[#E60000]/15 text-[#E60000] border border-[#E60000]/30 hover:bg-[#E60000]/25'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                  <span>Live Classes ({liveCount})</span>
+                </button>
+              )}
               <button
                 onClick={() => setTypeFilter('folders')}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl font-bold transition-colors shrink-0 ${
                   typeFilter === 'folders'
-                    ? 'bg-[#FACC15] text-black'
-                    : 'bg-white/5 text-stone-400 hover:text-white'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'bg-white/5 text-neutral-400 hover:text-white'
                 }`}
               >
                 Folders
               </button>
               <button
                 onClick={() => setTypeFilter('videos')}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl font-bold transition-colors shrink-0 ${
                   typeFilter === 'videos'
-                    ? 'bg-[#FACC15] text-black'
-                    : 'bg-white/5 text-stone-400 hover:text-white'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'bg-white/5 text-neutral-400 hover:text-white'
                 }`}
               >
                 Lectures
               </button>
               <button
                 onClick={() => setTypeFilter('pdfs')}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl font-bold transition-colors shrink-0 ${
                   typeFilter === 'pdfs'
-                    ? 'bg-[#FACC15] text-black'
-                    : 'bg-white/5 text-stone-400 hover:text-white'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'bg-white/5 text-neutral-400 hover:text-white'
                 }`}
               >
                 PDFs / Notes
               </button>
               <button
                 onClick={() => setTypeFilter('tests')}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-colors shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl font-bold transition-colors shrink-0 ${
                   typeFilter === 'tests'
-                    ? 'bg-[#FACC15] text-black'
-                    : 'bg-white/5 text-stone-400 hover:text-white'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'bg-white/5 text-neutral-400 hover:text-white'
                 }`}
               >
                 CBT Tests
@@ -562,17 +582,18 @@ export const CourseExplorer: React.FC<CourseExplorerProps> = ({
                           />
 
                           {/* Kicker badge */}
-                          <div className="absolute top-2 left-2">
+                          <div className="absolute top-2.5 left-2.5">
                             {isYouTube ? (
-                              <span className="bg-red-500/80 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow">
+                              <span className="bg-red-500/90 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow font-mono">
                                 YOUTUBE
                               </span>
                             ) : isLive ? (
-                              <span className="bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 shadow animate-pulse">
-                                LIVE
+                              <span className="bg-[#E60000] text-white text-[9px] font-doto font-bold px-2.5 py-1 rounded-xl flex items-center gap-1.5 shadow-[0_0_12px_#E60000] uppercase">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                                LIVE NOW
                               </span>
                             ) : (
-                              <span className="bg-black/70 backdrop-blur-sm text-[#FACC15] text-[9px] font-bold px-2 py-0.5 rounded border border-[#FACC15]/30">
+                              <span className="bg-black/80 backdrop-blur-sm text-neutral-300 text-[9px] font-mono font-bold px-2 py-0.5 rounded border border-white/10 uppercase">
                                 VIDEO
                               </span>
                             )}

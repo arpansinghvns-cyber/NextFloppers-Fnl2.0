@@ -2,17 +2,24 @@
 
 @layer base {
   :root {
-    --themeBg: #0a0a0a;
-    --cardBg: #121212;
-    --themePrimary: #FACC15;
-    --themePrimaryGlow: rgba(250, 204, 21, 0.35);
-    --themeSecondary: #F59E0B;
-    --themeAccent: #10B981;
-    --activeFont: 'Inter', system-ui, sans-serif;
-    --displayFont: 'Syne', system-ui, sans-serif;
+    --themeBg: #060608;
+    --cardBg: #0d0d12;
+    --themePrimary: #E60000;
+    --themePrimaryGlow: rgba(230, 0, 0, 0.45);
+    --themeSecondary: #FFFFFF;
+    --themeAccent: #E60000;
+    --activeFont: 'Space Grotesk', system-ui, sans-serif;
+    --displayFont: 'Doto', 'Space Grotesk', monospace;
   }
 
   /* Themes */
+  [data-theme="nothing"] {
+    --themePrimary: #E60000;
+    --themePrimaryGlow: rgba(230, 0, 0, 0.45);
+    --themeSecondary: #FFFFFF;
+    --themeAccent: #E60000;
+  }
+
   [data-theme="amber"] {
     --themePrimary: #FACC15;
     --themePrimaryGlow: rgba(250, 204, 21, 0.4);
@@ -49,6 +56,11 @@
   }
 
   /* Font Families */
+  [data-font="nothing"] {
+    --activeFont: 'Space Grotesk', system-ui, sans-serif;
+    --displayFont: 'Doto', 'Space Grotesk', monospace;
+  }
+
   [data-font="syne"] {
     --activeFont: 'Syne', sans-serif;
     --displayFont: 'Syne', sans-serif;
@@ -80,8 +92,8 @@
   }
 
   body {
-    background-color: #070708;
-    color: #e5e5e5;
+    background-color: #060608;
+    color: #f2f2f2;
     scroll-behavior: smooth;
     overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
@@ -90,12 +102,33 @@
   }
 }
 
+.font-doto {
+  font-family: 'Doto', monospace;
+  letter-spacing: 0.04em;
+}
+
+.font-nothing {
+  font-family: 'Doto', 'Space Grotesk', monospace;
+}
+
 .font-syne {
   font-family: var(--displayFont);
 }
 
 .font-custom {
   font-family: var(--activeFont);
+}
+
+.nothing-dot-bg {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1.5px, transparent 1.5px);
+  background-size: 20px 20px;
+}
+
+.nothing-grid-lines {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
 }
 
 .font-mono-code {

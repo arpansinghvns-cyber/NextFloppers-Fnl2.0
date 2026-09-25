@@ -69,8 +69,8 @@ export interface QuestionOption {
   label: string;
 }
 
-export type ThemeId = 'amber' | 'cyber' | 'purple' | 'emerald' | 'crimson';
-export type FontId = 'syne' | 'space' | 'outfit' | 'jakarta' | 'mono' | 'inter';
+export type ThemeId = 'nothing' | 'amber' | 'cyber' | 'purple' | 'emerald' | 'crimson';
+export type FontId = 'nothing' | 'space' | 'syne' | 'outfit' | 'jakarta' | 'mono' | 'inter';
 
 export interface FlopperNote {
   id: string;

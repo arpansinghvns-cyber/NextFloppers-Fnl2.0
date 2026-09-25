@@ -21,6 +21,16 @@ export interface FontConfig {
 
 export const THEMES: ThemeConfig[] = [
   {
+    id: 'nothing',
+    name: 'Nothing OS (1)',
+    tagline: 'Iconic Nothing Glyph Black & Red Dot',
+    primaryColor: '#E60000',
+    secondaryColor: '#FFFFFF',
+    badgeBg: 'bg-red-500/10 border-red-500/30 text-red-400',
+    textColor: 'text-[#E60000]',
+    glowColor: 'rgba(230, 0, 0, 0.45)'
+  },
+  {
     id: 'amber',
     name: 'Cyber Gold',
     tagline: 'Signature Next Floppers Gold',
@@ -74,18 +84,25 @@ export const THEMES: ThemeConfig[] = [
 
 export const FONTS: FontConfig[] = [
   {
+    id: 'nothing',
+    name: 'Nothing Dot Matrix (NDOT)',
+    tagline: 'Signature Nothing OS Dot-Matrix typography',
+    sample: 'NEXT FLOPPERS (2.0)',
+    family: "'Doto', 'Space Grotesk', monospace"
+  },
+  {
+    id: 'space',
+    name: 'Nothing Sans (Space Grotesk)',
+    tagline: 'Sharp Nothing Phone industrial font',
+    sample: 'Aarambh Class 10th Batch',
+    family: "'Space Grotesk', sans-serif"
+  },
+  {
     id: 'syne',
     name: 'Syne Hyper-Display',
     tagline: 'Heavy, futuristic & punchy',
     sample: 'NEXT FLOPPERS 2026',
     family: "'Syne', sans-serif"
-  },
-  {
-    id: 'space',
-    name: 'Space Grotesk',
-    tagline: 'Sharp, modern tech aesthetic',
-    sample: 'Aarambh Class 10th Batch',
-    family: "'Space Grotesk', sans-serif"
   },
   {
     id: 'outfit',
@@ -140,7 +157,7 @@ export function getInitialTheme(): ThemeId {
     const saved = localStorage.getItem('flopper_active_theme') as ThemeId;
     if (saved && THEMES.some(t => t.id === saved)) return saved;
   } catch {}
-  return 'amber';
+  return 'nothing';
 }
 
 export function getInitialFont(): FontId {
@@ -148,5 +165,5 @@ export function getInitialFont(): FontId {
     const saved = localStorage.getItem('flopper_active_font') as FontId;
     if (saved && FONTS.some(f => f.id === saved)) return saved;
   } catch {}
-  return 'syne';
+  return 'nothing';
 }

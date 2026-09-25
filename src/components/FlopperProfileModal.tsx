@@ -16,14 +16,14 @@ import {
   ExternalLink,
   ShieldCheck
 } from 'lucide-react';
-import { FlopperUser, FlopperNote, ThemeId, FontId } from '../types';
+import { FlopperUser, FlopperNote, ThemeId } from '../types';
 import { 
   FLOPPER_AVATARS, 
   TIER_CONFIG, 
   addFlopperNote, 
   removeFlopperNote 
 } from '../lib/flopperAuth';
-import { THEMES, FONTS } from '../lib/themeManager';
+import { THEMES } from '../lib/themeManager';
 
 interface FlopperProfileModalProps {
   isOpen: boolean;

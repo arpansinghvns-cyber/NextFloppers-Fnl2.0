@@ -8,6 +8,7 @@ import {
   getActiveKey,
   isFloppyAdminUser
 } from './keyService';
+import { getActiveCloudFrontCdn } from './serverSyncService';
 
 // On GitHub Pages or static production environments, there is no local Vite backend proxy (/api/nig)
 const isGitHubPages = typeof window !== 'undefined' && (
@@ -125,23 +126,42 @@ export async function fetchWithFallback(queryString: string, options: RequestIni
   return await fetch(DIRECT_API + queryString, options);
 }
 
+export function clearAllApiCaches(): void {
+  memoryCache.clear();
+  inFlightRequests.clear();
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith('nf_cache_')) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => sessionStorage.removeItem(k));
+  } catch {}
+}
+
 /**
  * Fetch all batches - Works on GitHub Pages with relative base path
  */
-export async function fetchAllBatches(): Promise<BatchItem[]> {
+export async function fetchAllBatches(forceRefresh: boolean = false): Promise<BatchItem[]> {
   const cacheKey = 'all_batches_v3';
-  const cached = getCached<BatchItem[]>(cacheKey);
-  if (cached && cached.length > 0) {
-    return cached;
+  if (!forceRefresh) {
+    const cached = getCached<BatchItem[]>(cacheKey);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
   }
 
   try {
     // Ensure relative path resolution for GitHub Pages repository subdirectory
     const baseUrl = (import.meta as any).env?.BASE_URL || './';
     const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-    const batchesUrl = `${cleanBase}batches.json`;
+    const batchesUrl = `${cleanBase}batches.json${forceRefresh ? `?t=${Date.now()}` : ''}`;
 
-    const res = await fetchWithTimeout(batchesUrl, {}, 2500);
+    const res = await fetchWithTimeout(batchesUrl, {
+      cache: forceRefresh ? 'no-cache' : 'default'
+    }, 3500);
     if (res.ok) {
       const data = await res.json();
       const list = [...(data.new || []), ...(data.old || [])];
@@ -463,7 +483,8 @@ export async function resolveMediaContent(
     const parts = data.vdc_id.split('_');
     if (parts.length >= 2) {
       const channelId = parts[0];
-      const guessedUrl = `https://dbil3go8szhu6.cloudfront.net/file_library/videos/channel_vod_non_drm_hls/${channelId}/index_2.m3u8`;
+      const activeCdn = getActiveCloudFrontCdn();
+      const guessedUrl = `${activeCdn}/file_library/videos/channel_vod_non_drm_hls/${channelId}/index_2.m3u8`;
       const resolved: MediaResolutionResult = {
         title: contentItem.title,
         url: guessedUrl,
