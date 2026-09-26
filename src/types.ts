@@ -7,6 +7,8 @@ export interface Lecture {
   description: string;
   category: string;
   isLive?: boolean;
+  rawItem?: any;
+  batchId?: number | string;
 }
 
 export type Category = 'All' | 'Science' | 'Maths' | 'English' | 'IT' | 'Hindi' | 'SST';
@@ -39,6 +41,8 @@ export interface ContentItemData {
   is_live?: number;
   vdc_id?: string | null;
   dynamic_link?: string;
+  download_urls?: string | any[] | null;
+  [key: string]: any;
   content_counts?: {
     folders?: ContentCount;
     video?: ContentCount;

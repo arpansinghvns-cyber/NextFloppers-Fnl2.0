@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, ThumbsUp, ThumbsDown, Sparkles, Play, ExternalLink, Bookmark, Check, Radio } from 'lucide-react';
 import { Lecture } from '../types';
-import { MediaResolutionResult } from '../lib/api';
+import { MediaResolutionResult, resolveMediaContent } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import { UltraVideoPlayer } from './UltraVideoPlayer';
 
@@ -22,6 +22,8 @@ export const VideoModal: React.FC<VideoModalProps> = ({
 }) => {
   const [isSaved, setIsSaved] = useState(false);
   const [isTheater, setIsTheater] = useState(false);
+  const [forcePlayer, setForcePlayer] = useState(false);
+  const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
 
   const activeItem = activeMedia || (lecture ? {
     title: lecture.title,
@@ -31,6 +33,26 @@ export const VideoModal: React.FC<VideoModalProps> = ({
     duration: undefined,
     isLive: lecture.isLive
   } : null);
+
+  useEffect(() => {
+    setForcePlayer(false);
+    setResolvedStreamUrl(null);
+  }, [activeItem?.url]);
+
+  useEffect(() => {
+    // If lecture has rawItem and its current URL is not streamable (e.g. portal dynamic link or empty), auto-resolve via API
+    if (lecture?.rawItem && lecture?.batchId) {
+      const currentUrl = activeItem?.url || '';
+      const streamable = currentUrl.includes('.m3u8') || currentUrl.includes('.mp4') || currentUrl.includes('cloudfront.net');
+      if (!streamable) {
+        resolveMediaContent(lecture.batchId, lecture.rawItem).then((res) => {
+          if (res && res.url && (res.type === 'hls' || res.type === 'mp4' || res.url.includes('.m3u8') || res.url.includes('.mp4'))) {
+            setResolvedStreamUrl(res.url);
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [lecture?.id, activeItem?.url]);
 
   useEffect(() => {
     if (activeItem) {
@@ -47,7 +69,7 @@ export const VideoModal: React.FC<VideoModalProps> = ({
 
   const instructorName = lecture?.instructor || "Next Toppers Faculty";
   const videoTitle = activeItem.title || "Video Lecture";
-  const videoUrl = activeItem.url;
+  const videoUrl = resolvedStreamUrl || activeItem.url;
   const isYouTube = activeItem.type === 'youtube' || videoUrl.includes('youtube') || videoUrl.includes('youtu.be');
 
   // Extract YouTube ID if it's youtube
@@ -57,6 +79,9 @@ export const VideoModal: React.FC<VideoModalProps> = ({
     return match && match[2].length === 11 ? match[2] : null;
   };
   const ytId = isYouTube ? getYouTubeId(videoUrl) : null;
+
+  const isStreamable = videoUrl.includes('.m3u8') || videoUrl.includes('.mp4') || videoUrl.includes('cloudfront.net');
+  const isExternalLink = !forcePlayer && !isStreamable && (activeItem.type === 'external' || videoUrl.includes('course.nexttoppers.com/dl/'));
 
   return (
     <AnimatePresence>
@@ -105,11 +130,54 @@ export const VideoModal: React.FC<VideoModalProps> = ({
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                   />
+                ) : isExternalLink ? (
+                  <div className="w-full aspect-video bg-[#0c0c12] p-8 flex flex-col items-center justify-center text-center space-y-4">
+                    <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                      <ExternalLink className="w-8 h-8" />
+                    </div>
+                    <div className="max-w-md space-y-1.5">
+                      <h3 className="text-white font-doto font-bold text-base uppercase">
+                        NEXT TOPPERS SECURE PORTAL RESOURCE
+                      </h3>
+                      <p className="text-neutral-400 text-xs font-sans">
+                        This lecture or session is hosted on Next Toppers dynamic portal. Access it through direct session relay or verified gateway mirrors.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                      <button
+                        onClick={() => setForcePlayer(true)}
+                        className="px-5 py-2.5 bg-white text-black hover:bg-[#E60000] hover:text-white font-doto font-bold text-xs rounded-xl uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>FORCE PLAY IN ULTRA PLAYER</span>
+                      </button>
+                      <a
+                        href={videoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-5 py-2.5 bg-[#E60000] hover:bg-red-600 text-white font-doto font-bold text-xs rounded-xl uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>OPEN SECURE PORTAL</span>
+                      </a>
+                      <a
+                        href={`https://studypanda.live/nt`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-white font-doto font-bold text-xs rounded-xl uppercase tracking-wider flex items-center gap-2 transition-all border border-white/15"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>STUDYPANDA GATEWAY</span>
+                      </a>
+                    </div>
+                  </div>
                 ) : (
                   <UltraVideoPlayer 
                     url={videoUrl} 
                     poster={activeItem.thumbnail || undefined}
                     title={videoTitle}
+                    lectureId={lecture?.id}
+                    isLive={activeItem.isLive}
                     onToggleTheater={() => setIsTheater(prev => !prev)}
                     isTheater={isTheater}
                   />

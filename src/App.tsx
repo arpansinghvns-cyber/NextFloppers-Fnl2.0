@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { BatchItem, Lecture, ThemeId, FlopperUser } from './types';
 import { ALL_BATCHES } from './lib/batchesData';
-import { fetchAllBatches, MediaResolutionResult } from './lib/api';
+import { fetchAllBatches, MediaResolutionResult, resolveMediaContent } from './lib/api';
 import { 
   getActiveKey, 
   getActiveKeySync, 
@@ -55,7 +55,8 @@ import { LIVE_CLASSES, LiveClassItem } from './lib/liveClassesData';
 import { 
   getStoredSyncedStreams, 
   DualSyncResult, 
-  isEnforceDualCheckEnabled 
+  isEnforceDualCheckEnabled,
+  fetchLiveStreamsFromBatchFolders
 } from './lib/streamSyncService';
 import { Logo } from './components/Logo';
 import { 
@@ -73,6 +74,15 @@ import {
 } from './lib/flopperAuth';
 
 const CURATED_LECTURES: Lecture[] = [
+  {
+    id: 'bio-1',
+    title: 'Our Environment - L3',
+    instructor: 'Prashant Kirad (Next Toppers)',
+    thumbnail: 'https://dylnd2lqy6eys.cloudfront.net/1770981347/admin_v2/content/thumbnail/7714303_148_All%20Class%20Thumbnail%20%2820%29.png',
+    videoUrl: 'https://dbil3go8szhu6.cloudfront.net/file_library/videos/channel_vod_non_drm_hls/4881584/179034036890468210315/index_2.m3u8',
+    description: 'Biology Chapter 13: Our Environment Lecture 03. Ecosystems, food chains, trophic levels, and waste management.',
+    category: 'Science'
+  },
   {
     id: 'sci-4',
     title: 'Chemical Reactions & Equations - L4',
@@ -108,6 +118,15 @@ const CURATED_LECTURES: Lecture[] = [
     videoUrl: 'https://dbil3go8szhu6.cloudfront.net/file_library/videos/channel_vod_non_drm_hls/4745192/177668871748251304992/177668871748251304992_1304992.m3u8',
     description: 'Lecture 03 of Development chapter. Analyzing Sustainability and Public Facilities. A concluding session on economic progress.',
     category: 'SST'
+  },
+  {
+    id: 'math-tri-6',
+    title: 'Triangles - L6',
+    instructor: 'Shobhit Nirwan Sir',
+    thumbnail: 'https://dylnd2lqy6eys.cloudfront.net/1770981347/admin_v2/content/thumbnail/6889699_148_All%20Class%20Thumbnail%20%2822%29.png',
+    videoUrl: 'https://dbil3go8szhu6.cloudfront.net/file_library/videos/channel_vod_non_drm_hls/4882023/179035273245351664920/index_2.m3u8',
+    description: 'Lecture 06 of Triangles chapter. Advanced proofs, Pythagoras theorem applications, and previous year board questions.',
+    category: 'Maths'
   },
   {
     id: 'math-1',
@@ -185,6 +204,11 @@ export default function App() {
   const [activeMedia, setActiveMedia] = useState<MediaResolutionResult | null>(null);
   const [selectedCuratedLecture, setSelectedCuratedLecture] = useState<Lecture | null>(null);
 
+  // Curated (Direct Lectures) local search & filtering state
+  const [curatedSearchQuery, setCuratedSearchQuery] = useState('');
+  const [curatedCategoryFilter, setCuratedCategoryFilter] = useState('All');
+  const [curatedInstructorFilter, setCuratedInstructorFilter] = useState('All');
+
   // CBT Exam modal state
   const [activeTest, setActiveTest] = useState<{ id: string; title: string } | null>(null);
 
@@ -250,6 +274,25 @@ export default function App() {
     }
   }, []);
 
+  // Proactively fetch live streams from batch folders (e.g. Science folder in Class 10th Aarambh batch)
+  useEffect(() => {
+    fetchLiveStreamsFromBatchFolders(batches).then(streams => {
+      if (streams && streams.length > 0) {
+        setSyncedLiveStreams(streams);
+      }
+    });
+
+    const handleStreamEvent = () => {
+      setSyncedLiveStreams(getStoredSyncedStreams());
+    };
+    window.addEventListener('nt_live_streams_updated', handleStreamEvent);
+    window.addEventListener('nt_live_stream_ended', handleStreamEvent);
+    return () => {
+      window.removeEventListener('nt_live_streams_updated', handleStreamEvent);
+      window.removeEventListener('nt_live_stream_ended', handleStreamEvent);
+    };
+  }, [batches]);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -258,16 +301,16 @@ export default function App() {
   };
 
   const handleDualSyncComplete = (res: DualSyncResult) => {
-    setSyncedLiveStreams(res.syncedLiveStreams);
+    setSyncedLiveStreams(res.syncedLiveClasses || (res as any).syncedLiveStreams || []);
     fetchAllBatches(true).then((list) => {
       if (list && list.length > 0) {
         setBatches(list);
       }
     });
-    if (res.hasNewStreams) {
-      showToast(`⚡ Synced ${res.activeStreamsCount} live stream from CloudFront!`);
+    if (res.hasActiveLive || (res as any).hasNewStreams) {
+      showToast(`⚡ Synced ${res.activeLiveCount || (res as any).activeStreamsCount} live broadcast!`);
     } else {
-      showToast("✓ CloudFront & StudyBee verified. Both systems synced.");
+      showToast("✓ Next Toppers database updated! Synced upcoming & live classes.");
     }
   };
 
@@ -350,16 +393,31 @@ export default function App() {
   };
 
   // Launch lecture with Key requirement enforcement
-  const handlePlayLecture = (lec: Lecture) => {
+  const handlePlayLecture = async (lec: Lecture) => {
     if (!hasActiveKey() && !isFloppyAdminUser()) {
       handleOpenKeyGateway(lec.title);
       return;
     }
-    setSelectedCuratedLecture(lec);
+
     if (flopperUser) {
       const updated = addFlopperKarma(5);
       if (updated) setFlopperUser(updated);
     }
+
+    // If lecture contains a raw batch item, dynamically resolve its actual media stream
+    if (lec.rawItem && lec.batchId) {
+      try {
+        const media = await resolveMediaContent(lec.batchId, lec.rawItem);
+        if (media && media.url) {
+          handlePlayMedia(media);
+          return;
+        }
+      } catch (err) {
+        console.warn("Dynamic media resolution fallback:", err);
+      }
+    }
+
+    setSelectedCuratedLecture(lec);
   };
 
   // Launch media with Key requirement enforcement
@@ -426,6 +484,37 @@ export default function App() {
     return result;
   }, [batches, currentTab, selectedCategory, searchQuery, enrolledIds]);
 
+  // Curated Lectures filtering
+  const curatedCategories = useMemo(() => {
+    const cats = new Set<string>();
+    CURATED_LECTURES.forEach(l => { if (l.category) cats.add(l.category); });
+    return ['All', ...Array.from(cats)];
+  }, []);
+
+  const curatedInstructors = useMemo(() => {
+    return ['All', 'Prashant Kirad', 'Shobhit Nirwan', 'Digraj Singh', 'Magnolia'];
+  }, []);
+
+  const filteredCuratedLectures = useMemo(() => {
+    return CURATED_LECTURES.filter(lec => {
+      if (curatedCategoryFilter !== 'All' && lec.category !== curatedCategoryFilter) {
+        return false;
+      }
+      if (curatedInstructorFilter !== 'All' && !lec.instructor.toLowerCase().includes(curatedInstructorFilter.toLowerCase())) {
+        return false;
+      }
+      if (curatedSearchQuery.trim()) {
+        const q = curatedSearchQuery.toLowerCase().trim();
+        const matchTitle = lec.title.toLowerCase().includes(q);
+        const matchInstructor = lec.instructor.toLowerCase().includes(q);
+        const matchCategory = (lec.category || '').toLowerCase().includes(q);
+        const matchDesc = (lec.description || '').toLowerCase().includes(q);
+        return matchTitle || matchInstructor || matchCategory || matchDesc;
+      }
+      return true;
+    });
+  }, [curatedSearchQuery, curatedCategoryFilter, curatedInstructorFilter]);
+
   const activeThemeObj = THEMES.find(t => t.id === currentTheme) || THEMES[0];
   const userAvatarObj = flopperUser ? (FLOPPER_AVATARS.find(a => a.id === flopperUser.avatar) || FLOPPER_AVATARS[0]) : null;
   const timeRemaining = getKeyTimeRemaining();
@@ -442,7 +531,7 @@ export default function App() {
       )}
 
       {/* Top Navbar */}
-      <nav className="w-full z-40 nav-glass h-[70px] sticky top-0 border-b border-white/10 backdrop-blur-xl">
+      <nav className="w-full z-40 nav-glass h-[70px] sticky top-0 border-b border-white/10 backdrop-blur-xl relative">
         <div className="max-w-[92rem] mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-4">
           
           {/* Brand Logo & Name */}
@@ -582,15 +671,15 @@ export default function App() {
               )}
             </div>
 
-            {/* CloudFront CDN & Content Live Auto-Update Trigger */}
+            {/* Live Database & Content Update Trigger */}
             <button
               onClick={() => setIsDualPopupOpen(true)}
               className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl text-xs font-bold transition-all flex items-center gap-2 btn-click-effect shadow-sm font-doto tracking-wider uppercase"
-              title="Enforce updates checking both CloudFront and studybeepro.site"
+              title="Update Next Toppers live and upcoming classes database"
             >
               <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />
               <RefreshCw className="w-3.5 h-3.5 text-neutral-300" />
-              <span className="hidden sm:inline text-[11px] text-white">DUAL SYNC</span>
+              <span className="hidden sm:inline text-[11px] text-white">UPDATE DB</span>
             </button>
 
             {/* Atmosphere / Theme Trigger */}
@@ -681,11 +770,17 @@ export default function App() {
           </div>
 
         </div>
+        {/* Subtle Ambient Nav Gradient Hairline */}
+        <div className="absolute inset-x-0 bottom-0 gradient-hairline pointer-events-none" />
       </nav>
 
       {/* MAIN BODY */}
-      <main className="flex-1 w-full max-w-[92rem] mx-auto px-4 sm:px-6 pt-5">
+      <main className="flex-1 w-full max-w-[92rem] mx-auto px-4 sm:px-6 pt-5 relative">
         
+        {/* Ambient Atmospheric Backdrop Glows */}
+        <div className="absolute top-10 left-1/4 w-96 h-96 bg-[var(--themePrimaryGlow)] rounded-full blur-[140px] pointer-events-none opacity-25 -z-10" />
+        <div className="absolute top-96 right-10 w-96 h-96 bg-sky-500/10 rounded-full blur-[160px] pointer-events-none opacity-30 -z-10" />
+
         {/* If Active Course is open, show Course Explorer */}
         {activeCourse ? (
           <CourseExplorer
@@ -730,15 +825,20 @@ export default function App() {
 
             {/* Key Notification Banner if user has NO key */}
             {!hasValidKey && !isFloppyAdmin && (
-              <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-[#0a0a0e] border border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl nothing-dot-bg">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 text-[#E60000]">
+              <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-[#170a0e]/95 via-[#0e0e15]/95 to-[#09090d]/95 border border-red-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-[0_8px_32px_rgba(230,0,0,0.18)] relative overflow-hidden backdrop-blur-xl">
+                {/* Radiant Edge Highlight */}
+                <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-red-500/40 to-transparent pointer-events-none" />
+                <div className="absolute top-0 right-0 w-48 h-48 bg-[#E60000]/15 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute inset-0 gradient-dot-pattern opacity-40 pointer-events-none" />
+                
+                <div className="flex items-center gap-3.5 relative z-10">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500/20 to-black/60 border border-red-500/30 flex items-center justify-center shrink-0 text-[#E60000] shadow-inner">
                     <Key className="w-6 h-6 stroke-[2]" />
                   </div>
                   <div>
                     <h4 className="text-xs sm:text-sm font-bold text-white font-doto uppercase tracking-wider flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />
-                      <span>PASS KEY REQUIRED FOR PLAYBACK</span>
+                      <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse shadow-[0_0_8px_#E60000]" />
+                      <span className="text-gradient-primary">PASS KEY REQUIRED FOR PLAYBACK</span>
                     </h4>
                     <p className="text-xs text-neutral-400 mt-0.5 font-sans">
                       Complete a fast sponsored checkpoint (8s) to mint your 24-hour pass, or use floppyadmin master key.
@@ -747,7 +847,7 @@ export default function App() {
                 </div>
                 <button
                   onClick={() => handleOpenKeyGateway()}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-[#E60000] hover:bg-red-600 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-all btn-click-effect font-doto shrink-0 shadow-[0_0_20px_rgba(230,0,0,0.4)]"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-[#E60000] to-red-600 hover:from-red-600 hover:to-[#E60000] text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-all btn-click-effect font-doto shrink-0 shadow-[0_0_20px_rgba(230,0,0,0.4)] relative z-10"
                 >
                   GET KEY (24H PASS)
                 </button>
@@ -846,8 +946,8 @@ export default function App() {
                     onClick={() => setSelectedCategory(cat)}
                     className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all btn-click-effect tracking-wider ${
                       selectedCategory === cat
-                        ? 'bg-white text-black shadow-md border border-white'
-                        : 'bg-[#0a0a0e] text-neutral-400 hover:text-white border border-white/10 hover:border-white/20'
+                        ? 'bg-gradient-to-r from-white to-neutral-200 text-black shadow-md border border-white'
+                        : 'bg-gradient-to-r from-white/5 to-white/[0.02] text-neutral-400 hover:text-white border border-white/10 hover:border-white/20'
                     }`}
                   >
                     {cat}
@@ -880,25 +980,125 @@ export default function App() {
               />
             ) : currentTab === 'curated' ? (
               <div>
-                <div className="mb-5 p-4 sm:p-5 rounded-3xl bg-[#0a0a0e] border border-white/10 nothing-dot-bg">
-                  <h2 className="text-base sm:text-lg font-bold text-white font-doto uppercase tracking-wider flex items-center gap-2.5">
-                    <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />
-                    <span>CURATED DIRECT STREAM ARCHIVE</span>
-                  </h2>
-                  <p className="text-xs text-neutral-400 mt-1 font-sans">
-                    Zero-redirect instant access to high-priority Science, Math, and English core lectures.
-                  </p>
+                <div className="mb-5 p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-[#14121d] via-[#0d0d14] to-[#07070a] border border-white/10 relative overflow-hidden shadow-xl">
+                  {/* Subtle Corner Flare & Dot Pattern */}
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-[#E60000]/15 via-purple-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+                  <div className="absolute inset-0 gradient-dot-pattern opacity-30 pointer-events-none" />
+                  
+                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+                    <div>
+                      <h2 className="text-base sm:text-lg font-black text-white font-doto uppercase tracking-wider flex items-center gap-2.5">
+                        <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse shadow-[0_0_8px_#E60000]" />
+                        <span className="text-gradient-primary">CURATED DIRECT STREAM ARCHIVE</span>
+                      </h2>
+                      <p className="text-xs text-neutral-400 mt-1 font-sans">
+                        Zero-redirect instant access to high-priority Science, Math, SST, and English core lectures.
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-2 bg-white/10 border border-white/15 px-3.5 py-1.5 rounded-2xl text-[11px] font-mono text-neutral-200 shadow-sm">
+                      <Sparkles className="w-3.5 h-3.5 text-[#E60000]" />
+                      <span>{filteredCuratedLectures.length} of {CURATED_LECTURES.length} Lectures</span>
+                    </div>
+                  </div>
+
+                  {/* Local Search & Filtering Controls */}
+                  <div className="mt-4 pt-4 border-t border-white/10 flex flex-col gap-3">
+                    {/* Search Input */}
+                    <div className="relative w-full">
+                      <Search className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={curatedSearchQuery}
+                        onChange={(e) => setCuratedSearchQuery(e.target.value)}
+                        placeholder="Search curated lectures by topic, chapter, or teacher (e.g. Chemical Reactions, Prashant, Shobhit, Real Numbers)..."
+                        className="w-full bg-[#0d0d14] border border-white/10 rounded-2xl pl-10 pr-10 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-white/30 transition-all font-sans"
+                      />
+                      {curatedSearchQuery && (
+                        <button
+                          onClick={() => setCuratedSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
+                          title="Clear search query"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Filter Pills: Subject & Teacher */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
+                      {/* Subject Chips */}
+                      <div className="flex items-center gap-1.5 overflow-x-auto hide-scroll py-0.5">
+                        <span className="text-[10px] uppercase font-mono text-neutral-500 mr-1 shrink-0">Subject:</span>
+                        {curatedCategories.map(cat => (
+                          <button
+                            key={cat}
+                            onClick={() => setCuratedCategoryFilter(cat)}
+                            className={`px-3 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all ${
+                              curatedCategoryFilter === cat
+                                ? 'bg-white text-black font-extrabold shadow-sm'
+                                : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/5'
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Instructor Chips */}
+                      <div className="flex items-center gap-1.5 overflow-x-auto hide-scroll py-0.5">
+                        <span className="text-[10px] uppercase font-mono text-neutral-500 mr-1 shrink-0">Teacher:</span>
+                        {curatedInstructors.map(inst => (
+                          <button
+                            key={inst}
+                            onClick={() => setCuratedInstructorFilter(inst)}
+                            className={`px-3 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all ${
+                              curatedInstructorFilter === inst
+                                ? 'bg-[#E60000] text-white font-extrabold shadow-sm'
+                                : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/5'
+                            }`}
+                          >
+                            {inst}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-16">
-                  {CURATED_LECTURES.map((lec) => (
-                    <LectureCard
-                      key={lec.id}
-                      lecture={lec}
-                      onClick={handlePlayLecture}
-                    />
-                  ))}
-                </div>
+                {/* Lecture Grid / Empty State */}
+                {filteredCuratedLectures.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center bg-[#0a0a0e] border border-white/10 rounded-3xl nothing-dot-bg p-6">
+                    <div className="w-14 h-14 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center mb-4 text-[#E60000]">
+                      <Search className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-sm sm:text-base font-bold text-white mb-1 font-doto uppercase tracking-wider">
+                      NO CURATED LECTURES FOUND
+                    </h3>
+                    <p className="text-neutral-400 text-xs max-w-sm mb-5 font-sans leading-relaxed">
+                      No direct lectures match "{curatedSearchQuery}" with current filters. Try relaxing search keywords or clearing active filters.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setCuratedSearchQuery('');
+                        setCuratedCategoryFilter('All');
+                        setCuratedInstructorFilter('All');
+                      }}
+                      className="px-4 py-2 bg-white text-black font-doto font-bold rounded-2xl text-xs uppercase tracking-wider hover:bg-[#E60000] hover:text-white transition-all shadow-md"
+                    >
+                      RESET FILTERS
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-16">
+                    {filteredCuratedLectures.map((lec) => (
+                      <LectureCard
+                        key={lec.id}
+                        lecture={lec}
+                        onClick={handlePlayLecture}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               /* TAB CONTENT: Batches Grid */
@@ -1079,16 +1279,18 @@ export default function App() {
         isAutoPrompt={isAutoPrompt}
       />
 
-      {/* Small Popup Enforcing Dual System Updates (CloudFront & StudyBeePro.site) */}
+      {/* Small Popup Enforcing Dual System Updates */}
       <DualSystemUpdatePopup
         isOpen={isDualPopupOpen}
         onClose={() => setIsDualPopupOpen(false)}
         onSyncComplete={handleDualSyncComplete}
         autoStartOnOpen={true}
+        batches={batches}
       />
 
       {/* Footer */}
-      <footer className="w-full border-t border-white/10 py-8 bg-[#050507] mt-auto font-doto uppercase">
+      <footer className="w-full border-t border-white/10 py-8 bg-[#050507] mt-auto font-doto uppercase relative">
+        <div className="absolute inset-x-0 top-0 gradient-hairline pointer-events-none" />
         <div className="max-w-[92rem] mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-neutral-500">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#E60000] animate-pulse" />

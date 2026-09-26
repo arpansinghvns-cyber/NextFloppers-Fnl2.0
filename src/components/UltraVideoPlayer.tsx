@@ -26,22 +26,34 @@ import {
   RefreshCw,
   Radio
 } from 'lucide-react';
-import { generateStreamCandidates, StreamCandidate } from '../lib/streamRelocator';
+import { 
+  generateStreamCandidates, 
+  StreamCandidate, 
+  KNOWN_CHANNEL_DIRECT_VIDEOS, 
+  KNOWN_CHANNEL_SESSION_HASHES 
+} from '../lib/streamRelocator';
+import { endLiveStream } from '../lib/streamSyncService';
 
 interface UltraVideoPlayerProps {
   url: string;
   poster?: string;
   title?: string;
+  lectureId?: string;
+  isLive?: boolean;
   onToggleTheater?: () => void;
   isTheater?: boolean;
+  onStreamEnded?: (id: string) => void;
 }
 
 export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({ 
   url, 
   poster,
   title = "Ultra Stream",
+  lectureId,
+  isLive = false,
   onToggleTheater,
-  isTheater = false
+  isTheater = false,
+  onStreamEnded
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,6 +63,8 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const networkErrorCountRef = useRef<number>(0);
+  const isCleaningUpRef = useRef<boolean>(false);
 
   // Stream Candidates
   const [candidates, setCandidates] = useState<StreamCandidate[]>([]);
@@ -114,10 +128,10 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Setup Web Audio Gain Booster (Safe on user gesture)
+  // Setup Web Audio Gain Booster (Safe on user gesture, only when boost > 100)
   const setupAudioBooster = useCallback(() => {
     const video = videoRef.current;
-    if (!video || audioCtxRef.current) return;
+    if (!video || audioCtxRef.current || boostLevel <= 100) return;
 
     try {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -155,16 +169,31 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
     if (!video) return;
 
     let hls: Hls | null = null;
+    isCleaningUpRef.current = false;
     const streamUrl = activeCandidate.url;
     setLoading(true);
     setError(null);
+    networkErrorCountRef.current = 0;
 
     if (isNativeFallback || (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl'))) {
       video.src = streamUrl;
       video.load();
-      video.play().catch(() => {});
-      setLoading(false);
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setLoading(false);
+          })
+          .catch(() => {
+            setIsPlaying(false);
+            setLoading(false);
+          });
+      } else {
+        setLoading(false);
+      }
       return () => {
+        isCleaningUpRef.current = true;
         video.src = '';
       };
     }
@@ -185,6 +214,8 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         setLoading(false);
+        setError(null);
+        networkErrorCountRef.current = 0;
         const levels = data.levels.map((lvl, index) => ({
           id: index,
           label: lvl.height ? `${lvl.height}p` : `Level ${index + 1}`,
@@ -193,20 +224,45 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
         // Sort highest first
         levels.sort((a, b) => (b.height || 0) - (a.height || 0));
         setAvailableQualities([{ id: -1, label: 'Auto (Adaptive)' }, ...levels]);
-        video.play().catch(() => {});
+        
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsPlaying(true);
+              setLoading(false);
+            })
+            .catch(() => {
+              // Autoplay without user gesture blocked: show center play button so user can tap
+              setIsPlaying(false);
+              setLoading(false);
+            });
+        } else {
+          setLoading(false);
+        }
       });
 
       hls.on(Hls.Events.ERROR, (_, data) => {
+        if (isCleaningUpRef.current) return;
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              hls?.startLoad();
+              networkErrorCountRef.current += 1;
+              if (networkErrorCountRef.current <= 1) {
+                hls?.startLoad();
+              } else {
+                hls?.destroy();
+                setLoading(false);
+                setError('Primary stream node unreachable. Switching to backup mirror...');
+                handleNextCandidate();
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               hls?.recoverMediaError();
               break;
             default:
               hls?.destroy();
+              setLoading(false);
               setError('Primary mirror failed. Attempting next secure node...');
               handleNextCandidate();
               break;
@@ -215,14 +271,31 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
       });
 
       return () => {
+        isCleaningUpRef.current = true;
         hls?.destroy();
         hlsRef.current = null;
       };
     } else {
       video.src = streamUrl;
       video.load();
-      video.play().catch(() => {});
-      setLoading(false);
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setLoading(false);
+          })
+          .catch(() => {
+            setIsPlaying(false);
+            setLoading(false);
+          });
+      } else {
+        setLoading(false);
+      }
+      return () => {
+        isCleaningUpRef.current = true;
+        video.src = '';
+      };
     }
   }, [activeCandidate.url, isNativeFallback]);
 
@@ -253,9 +326,31 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
       }
     };
 
+    const handleEnded = () => {
+      triggerToast('🔴 Broadcast ended. Stream moved to recorded archive.');
+      const targetId = lectureId || '29342';
+      endLiveStream(targetId);
+      if (onStreamEnded) {
+        onStreamEnded(targetId);
+      }
+    };
+
     video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [isLooping, loopA, loopB]);
+    video.addEventListener('ended', handleEnded);
+    return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('ended', handleEnded);
+    };
+  }, [isLooping, loopA, loopB, lectureId, onStreamEnded]);
+
+  const handleManualEndStream = () => {
+    const targetId = lectureId || '29342';
+    endLiveStream(targetId);
+    triggerToast('🔴 Live stream ended by user. Removed from live list.');
+    if (onStreamEnded) {
+      onStreamEnded(targetId);
+    }
+  };
 
   // Sleep Timer Interval
   useEffect(() => {
@@ -533,19 +628,52 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
         ref={videoRef}
         poster={poster}
         playsInline
-        crossOrigin="anonymous"
         onClick={togglePlay}
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => {
+          setIsPlaying(true);
+          setLoading(false);
+        }}
         onPause={() => setIsPlaying(false)}
+        onCanPlay={() => setLoading(false)}
+        onLoadedData={() => setLoading(false)}
         onLoadedMetadata={() => {
+          setLoading(false);
           if (videoRef.current) {
             setDuration(videoRef.current.duration);
           }
         }}
-        onWaiting={() => setLoading(true)}
-        onPlaying={() => setLoading(false)}
+        onWaiting={() => {
+          if (!videoRef.current?.paused) {
+            setLoading(true);
+          }
+        }}
+        onPlaying={() => {
+          setIsPlaying(true);
+          setLoading(false);
+        }}
+        onError={() => {
+          if (isCleaningUpRef.current) return;
+          if (hlsRef.current) return;
+          const err = videoRef.current?.error;
+          if (err && err.code) {
+            setLoading(false);
+            handleNextCandidate();
+          }
+        }}
         className="w-full h-full object-contain cursor-pointer"
       />
+
+      {/* Play/Pause Center Overlay when paused */}
+      {!isPlaying && !error && (
+        <div 
+          onClick={togglePlay}
+          className="absolute inset-0 flex items-center justify-center bg-black/25 cursor-pointer z-20 group transition-all"
+        >
+          <div className="w-16 h-16 rounded-2xl bg-[#E60000] text-white flex items-center justify-center shadow-2xl transition-transform group-hover:scale-110 border border-white/20">
+            <Play className="w-8 h-8 fill-current ml-1" />
+          </div>
+        </div>
+      )}
 
       {/* White Flash Effect on Screenshot */}
       {screenshotFlash && (
@@ -561,7 +689,7 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
       )}
 
       {/* Spinner / Buffering */}
-      {loading && (
+      {loading && isPlaying && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none z-30">
           <div className="w-12 h-12 rounded-full border-2 border-white/10 border-t-[#E60000] animate-spin mb-3" />
           <span className="font-doto text-xs font-bold text-neutral-300 tracking-wider uppercase">
@@ -580,12 +708,49 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
             <h4 className="text-white font-doto font-bold text-sm uppercase">[ STREAM EXCEPTION ]</h4>
             <p className="text-neutral-400 text-xs">{error}</p>
           </div>
-          <button
-            onClick={handleNextCandidate}
-            className="px-5 py-2.5 bg-white text-black font-doto font-bold text-xs rounded-xl uppercase tracking-wider hover:bg-[#E60000] hover:text-white transition-colors"
-          >
-            SWITCH TO BACKUP MIRROR
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={handleNextCandidate}
+              className="px-5 py-2.5 bg-white text-black font-doto font-bold text-xs rounded-xl uppercase tracking-wider hover:bg-[#E60000] hover:text-white transition-colors shadow-lg"
+            >
+              SWITCH TO BACKUP MIRROR
+            </button>
+            <button
+              onClick={() => {
+                const chanMatch = url.match(/\/(\d+)\//);
+                const chId = chanMatch ? chanMatch[1] : '';
+                const directVideo = KNOWN_CHANNEL_DIRECT_VIDEOS[chId];
+                const sessionHash = KNOWN_CHANNEL_SESSION_HASHES[chId];
+
+                if (directVideo) {
+                  triggerToast('⚡ Switched to Direct Normal Video from Server');
+                  setCandidates(prev => [{ label: 'Direct Server Video (Fast MP4)', url: directVideo, quality: '720p Direct', isPrimary: true }, ...prev]);
+                  setActiveCandidateIndex(0);
+                  setError(null);
+                  return;
+                }
+
+                if (sessionHash) {
+                  const fixedHls = `https://dbil3go8szhu6.cloudfront.net/file_library/videos/channel_vod_non_drm_hls/${chId}/${sessionHash}/index_2.m3u8`;
+                  triggerToast('⚡ Reconstructed Verified CloudFront Stream');
+                  setCandidates(prev => [{ label: 'Verified HLS Stream (480p)', url: fixedHls, quality: '480p Verified', isPrimary: true }, ...prev]);
+                  setActiveCandidateIndex(0);
+                  setError(null);
+                  return;
+                }
+
+                triggerToast('🔑 Resolving via StudyPanda & StudyBee Gateway Node...');
+                const studyBeeRelay = `https://nt.studybeepro.site/api/foy?stream_url=${encodeURIComponent(url)}`;
+                setCandidates(prev => [{ label: 'StudyBee / StudyPanda Verified Node', url: studyBeeRelay, quality: 'Verified 480p', isPrimary: true }, ...prev]);
+                setActiveCandidateIndex(0);
+                setError(null);
+              }}
+              className="px-5 py-2.5 bg-red-950 border border-red-500/40 text-white font-doto font-bold text-xs rounded-xl uppercase tracking-wider hover:bg-red-900 transition-colors shadow-lg flex items-center gap-2"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>RESOLVE VIA STUDYPANDA / STUDYBEE</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -606,6 +771,18 @@ export const UltraVideoPlayer: React.FC<UltraVideoPlayerProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* End Live Stream Button */}
+          {isLive && (
+            <button
+              onClick={handleManualEndStream}
+              className="px-3 py-1 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[10px] font-doto font-bold uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all btn-click-effect"
+              title="Turn off live stream and archive class"
+            >
+              <Radio className="w-3 h-3 text-white animate-pulse" />
+              <span>END STREAM</span>
+            </button>
+          )}
+
           {/* A-B Loop Indicator */}
           {isLooping && (
             <div className="px-2.5 py-1 rounded-xl bg-[#E60000]/20 border border-[#E60000]/40 text-[#E60000] text-[10px] font-doto font-bold uppercase flex items-center gap-1.5 animate-pulse">

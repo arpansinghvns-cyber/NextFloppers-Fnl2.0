@@ -235,9 +235,12 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({
   return (
     <div className="space-y-6 animate-fade-in font-sans">
       {/* Community Hero Header Widget */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-[#09090d] border border-white/10 relative overflow-hidden nothing-dot-bg">
-        {/* Subtle Glyph Red Flare */}
-        <div className="absolute top-0 right-0 w-48 h-48 bg-[#E60000]/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-[#13121a]/95 via-[#0a0a0f]/95 to-[#060609]/95 border border-white/10 relative overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.85)]">
+        {/* Subtle Glyph Red & Cyan Flares */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-[#E60000]/20 via-purple-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 left-10 w-60 h-60 bg-gradient-to-tr from-sky-500/10 via-transparent to-transparent rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute inset-0 gradient-dot-pattern opacity-40 pointer-events-none" />
+        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/25 to-transparent pointer-events-none" />
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
@@ -250,7 +253,7 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({
                 OPEN VAULT
               </span>
             </div>
-            <h2 className="text-xl sm:text-3xl font-black text-white font-doto tracking-wide uppercase">
+            <h2 className="text-xl sm:text-3xl font-black text-white font-doto tracking-wide uppercase text-gradient-primary">
               STUDENT RESOURCE VAULT & SUGGESTIONS
             </h2>
             <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-2xl leading-relaxed">

@@ -4,6 +4,7 @@ import {
   fetchCourseOverview, 
   fetchFolderContent, 
   resolveMediaContent, 
+  resolveDirectPdfUrl,
   MediaResolutionResult 
 } from '../lib/api';
 import { 
@@ -36,6 +37,7 @@ import {
   isFloppyAdminUser, 
   getActiveKey 
 } from '../lib/keyService';
+import { registerDiscoveredLiveItem } from '../lib/streamSyncService';
 
 interface FolderStep {
   id: string;
@@ -134,6 +136,18 @@ export const CourseExplorer: React.FC<CourseExplorerProps> = ({
     return h > 0 ? `${h}:${mStr}:${sStr}` : `${mStr}:${sStr}`;
   };
 
+  // Automatically register any live classes from the current folder into the global live stream database
+  useEffect(() => {
+    if (items && items.length > 0) {
+      const currentFolder = folderHistory[folderHistory.length - 1];
+      items.forEach(item => {
+        if (item.type === 'file' && (item.data?.is_live === 1 || item.title.toLowerCase().includes('live') || item.title.toLowerCase().includes('our env'))) {
+          registerDiscoveredLiveItem(batch, item, currentFolder?.title || 'Course Folder', currentFolder?.id);
+        }
+      });
+    }
+  }, [items, batch, folderHistory]);
+
   // Count live classes in current folder
   const liveCount = useMemo(() => {
     return items.filter(i => i.type === 'file' && (i.data?.is_live === 1 || i.title.toLowerCase().includes('live'))).length;
@@ -195,28 +209,42 @@ export const CourseExplorer: React.FC<CourseExplorerProps> = ({
       setResolvingMediaId(item.entity_id);
 
       try {
-        const media = await resolveMediaContent(batch.id, item);
-
-        if (media) {
-          if (media.requiresKey) {
-            onRequireKey(item.title);
-            return;
+        if (isPdf) {
+          // Resolve direct CloudFront PDF link (never load NextToppers dynamic links in PDF reader)
+          let directPdfUrl: string | null = null;
+          const media = await resolveMediaContent(batch.id, item);
+          if (media && media.url && !media.url.includes('course.nexttoppers.com') && !media.url.includes('/dl/')) {
+            directPdfUrl = media.url;
+          } else {
+            directPdfUrl = await resolveDirectPdfUrl(batch.id, item.entity_id);
           }
 
-          if (isPdf || media.type === 'pdf') {
+          if (directPdfUrl) {
             setUseGooglePdfFallback(false);
-            setPdfModalData({ title: media.title, url: media.url });
+            setPdfModalData({ title: media?.title || item.title, url: directPdfUrl });
           } else {
-            onPlayVideo(media);
+            // Direct PDF not ready or network offline
+            console.warn("Direct PDF link could not be resolved from server edge");
           }
         } else {
-          // If direct dynamic_link or fallback exists
-          const fallbackUrl = item.data?.file_url || item.data?.dynamic_link;
-          if (fallbackUrl) {
-            if (isPdf) {
-              setPdfModalData({ title: item.title, url: fallbackUrl });
-            } else {
-              window.open(fallbackUrl, '_blank');
+          // Resolve Video Lecture for UltraVideoPlayer
+          const media = await resolveMediaContent(batch.id, item);
+          if (media) {
+            if (media.requiresKey) {
+              onRequireKey(item.title);
+              return;
+            }
+            onPlayVideo(media);
+          } else {
+            const fallbackUrl = item.data?.file_url || item.data?.dynamic_link;
+            if (fallbackUrl) {
+              onPlayVideo({
+                title: item.title,
+                url: fallbackUrl,
+                type: fallbackUrl.includes('.m3u8') ? 'hls' : fallbackUrl.includes('.mp4') ? 'mp4' : 'external',
+                thumbnail: item.data?.thumbnail || undefined,
+                duration: item.data?.duration
+              });
             }
           }
         }
@@ -264,8 +292,13 @@ export const CourseExplorer: React.FC<CourseExplorerProps> = ({
       </div>
 
       {/* Batch Hero Banner Card */}
-      <div className="bg-[#111116] border border-white/10 rounded-2xl p-5 sm:p-7 mb-8 relative overflow-hidden flex flex-col md:flex-row items-center gap-6 shadow-xl">
-        <div className="w-full md:w-64 h-36 sm:h-40 shrink-0 rounded-xl overflow-hidden bg-black/80 border border-white/10 relative group">
+      <div className="bg-gradient-to-br from-[#161622]/95 via-[#0e0e16]/95 to-[#08080c]/95 border border-white/10 rounded-3xl p-5 sm:p-7 mb-8 relative overflow-hidden flex flex-col md:flex-row items-center gap-6 shadow-[0_12px_40px_rgba(0,0,0,0.85)]">
+        {/* Ambient Gradient Atmosphere Glows */}
+        <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-bl from-[var(--themePrimaryGlow)] via-transparent to-transparent rounded-full blur-3xl pointer-events-none opacity-30" />
+        <div className="absolute inset-0 gradient-dot-pattern opacity-25 pointer-events-none" />
+        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/25 to-transparent pointer-events-none" />
+
+        <div className="w-full md:w-64 h-36 sm:h-40 shrink-0 rounded-2xl overflow-hidden bg-black/80 border border-white/10 relative group shadow-md">
           <img
             src={batch.thumbnail}
             alt={batch.title}

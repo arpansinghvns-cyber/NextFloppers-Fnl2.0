@@ -21,12 +21,15 @@ export const LectureCard: React.FC<LectureCardProps> = ({ lecture, onClick }) =>
   return (
     <div
       onClick={() => onClick(lecture)}
-      className="group cursor-pointer aspect-video relative rounded-2xl overflow-hidden border border-white/10 hover:border-[#FACC15]/40 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/70 bg-[#121216]"
+      className="group cursor-pointer aspect-video relative rounded-2xl overflow-hidden border border-white/10 hover:border-white/30 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_16px_36px_rgba(0,0,0,0.85),0_0_24px_-4px_rgba(250,204,21,0.25)] bg-gradient-to-br from-[#161622] via-[#0e0e16] to-[#07070a]"
     >
+      {/* Top Edge Ambient Gradient Hairline */}
+      <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/25 to-transparent z-20 pointer-events-none group-hover:via-[#FACC15]/60 transition-all" />
+
       {isGenerating ? (
         <div className="absolute inset-0 bg-black flex flex-col items-center justify-center gap-3">
           <Loader2 className="w-8 h-8 text-[#FACC15] animate-spin" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-[#FACC15]/70">Loading Snippet...</span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-[#FACC15]/70 font-mono">Loading Snippet...</span>
         </div>
       ) : (
         <img
@@ -39,8 +42,9 @@ export const LectureCard: React.FC<LectureCardProps> = ({ lecture, onClick }) =>
         />
       )}
       
-      {/* Dynamic Crystalline Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-95 group-hover:opacity-85 transition-opacity" />
+      {/* Dynamic Crystalline Overlay with Gradient Sheen */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent opacity-95 group-hover:opacity-85 transition-opacity" />
+      <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
       
       {/* Big Stylized Thumbnail Title in center */}
       <div className="absolute inset-0 flex items-center justify-center p-4 text-center">

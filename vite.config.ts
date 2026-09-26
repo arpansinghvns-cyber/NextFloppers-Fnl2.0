@@ -21,6 +21,11 @@ export default defineConfig(({mode}) => {
       host: '0.0.0.0',
       hmr: process.env.DISABLE_HMR !== 'true',
       proxy: {
+        '/api/play': {
+          target: 'https://nexttoppers.asmultiverse.in',
+          changeOrigin: true,
+          secure: false,
+        },
         '/api/nig': {
           target: 'https://nt.studybeepro.site',
           changeOrigin: true,
